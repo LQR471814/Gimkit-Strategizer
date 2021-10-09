@@ -1,0 +1,54 @@
+import { UpgradeIndex, PlayerStatistic } from "./types";
+
+export const levelMax = 10 //TODO: Update this if data changes
+
+export const index: UpgradeIndex = {
+	[PlayerStatistic.MONEY_PER_QUESTION]: [
+		{ value: 1, cost: 0 },
+		{ value: 5, cost: 10 },
+		{ value: 50, cost: 100 },
+		{ value: 100, cost: 1000 },
+		{ value: 500, cost: 10000 },
+		{ value: 2000, cost: 75000 },
+		{ value: 5000, cost: 300000 },
+		{ value: 10000, cost: 1000000 },
+		{ value: 250000, cost: 10000000 },
+		{ value: 1000000, cost: 100000000 },
+	],
+	[PlayerStatistic.STREAK_BONUS]: [
+		{ value: 1, cost: 0 },
+		{ value: 3, cost: 20 },
+		{ value: 10, cost: 200 },
+		{ value: 50, cost: 2000 },
+		{ value: 250, cost: 20000 },
+		{ value: 1200, cost: 200000 },
+		{ value: 6500, cost: 2000000 },
+		{ value: 35000, cost: 20000000 },
+		{ value: 175000, cost: 200000000 },
+		{ value: 1000000, cost: 2000000000 },
+	],
+	[PlayerStatistic.MULTIPLIER]: [
+		{ value: 1, cost: 0 },
+		{ value: 1.5, cost: 50 },
+		{ value: 2, cost: 300 },
+		{ value: 3, cost: 2000 },
+		{ value: 5, cost: 12000 },
+		{ value: 8, cost: 85000 },
+		{ value: 12, cost: 700000 },
+		{ value: 18, cost: 6500000 },
+		{ value: 30, cost: 65000000 },
+		{ value: 100, cost: 1000000000 },
+	],
+	[PlayerStatistic.INSURANCE]: [
+		{ value: 0, cost: 0 },
+		{ value: 10, cost: 10 },
+		{ value: 25, cost: 250 },
+		{ value: 40, cost: 1000 },
+		{ value: 50, cost: 25000 },
+		{ value: 70, cost: 100000 },
+		{ value: 80, cost: 1000000 },
+		{ value: 90, cost: 5000000 },
+		{ value: 95, cost: 25000000 },
+		{ value: 99, cost: 500000000 },
+	],
+}
