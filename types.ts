@@ -23,9 +23,11 @@ export type Stats = {
 	}
 }
 
-export type UpgradeOrder = {
+export type PlayOptions = {
+	init: Stats
 	upgrades: PlayerStatistic[]
 	setbackChance: number //? Probability (0 - 1) that problem will be incorrect, defined as (avg incorrect) / (avg correct)
+	money: number
 }
 
 //? A "wave" is defined loosely as the number of questions answered correctly required

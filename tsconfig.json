@@ -2,7 +2,8 @@
 	"compilerOptions": {
 		"noImplicitAny": true,
 		"strict": true,
-		"module": "commonjs"
+		"module": "commonjs",
+    "lib": ["esnext", "dom"]
 	},
 	"exclude": [
 		"node_modules"

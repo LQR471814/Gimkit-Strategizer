@@ -4,12 +4,13 @@
   "description": "Calculates Gimkit strategy data",
   "main": "main.js",
   "scripts": {
-    "start": "tsc main.ts && node main.js",
+    "start": "tsc && node --expose-gc main.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "author": "LQR471814",
   "license": "MIT",
   "dependencies": {
+    "ts-node": "^10.3.0",
     "typescript": "^4.4.3"
   }
 }

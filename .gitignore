@@ -1,3 +1,8 @@
 /node_modules/
 package-lock.json
-*.js
+data.js
+main.js
+strategizer.js
+strategizer_worker.js
+types.js
+utils.js

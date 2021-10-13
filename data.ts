@@ -1,7 +1,5 @@
 import { UpgradeIndex, PlayerStatistic } from "./types";
 
-export const levelMax = 10 //TODO: Update this if data changes
-
 export const index: UpgradeIndex = {
 	[PlayerStatistic.MONEY_PER_QUESTION]: [
 		{ value: 1, cost: 0 },
