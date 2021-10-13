@@ -1,0 +1,53 @@
+package main
+
+import (
+	"log"
+	"net/http"
+	_ "net/http/pprof"
+	"time"
+)
+
+func main() {
+	log.SetFlags(log.Lshortfile | log.Ltime)
+
+	go func() {
+		log.Println(http.ListenAndServe("localhost:6060", nil))
+	}()
+
+	testLevels := 5
+	testArray := []int{
+		MONEY_PER_QUESTION,
+		STREAK_BONUS,
+		MULTIPLIER,
+	}
+
+	options := DefaultPlayOptions()
+	options.Upgrades = GeneratePattern(testArray, testLevels)
+
+	log.Println("Running performance checks...")
+
+	log.Println("Timing...")
+
+	// syncTime, result := Time(func() UpgradePath {
+	// 	return Optimize(
+	// 		[]int{}, testArray, &options,
+	// 		0, testLevels*len(testArray),
+	// 	)
+	// })
+	// log.Println(syncTime, result)
+
+	threadedTime, result := TimeResult(func() UpgradePath {
+		return ThreadedOptimize(
+			testArray, &options, 2,
+			testLevels*len(testArray),
+		)
+	})
+	log.Println(threadedTime, result)
+}
+
+func TimeResult(f func() UpgradePath) (time.Duration, UpgradePath) {
+	t1 := time.Now()
+	result := f()
+	elapsed := time.Since(t1)
+	return elapsed, result
+}
