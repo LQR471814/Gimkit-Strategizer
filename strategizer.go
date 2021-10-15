@@ -138,6 +138,13 @@ func PermutePlay(options PlayOptions, upgrades, sequence []int, depth, max int) 
 }
 
 func PlayRecurse(options PlayOptions, moneyGoal float32, upgrades, sequence []int, depth, max int) UpgradePath {
+	if options.Money >= moneyGoal {
+		return UpgradePath{
+			Sequence: sequence,
+			Problems: 0,
+		}
+	}
+
 	if depth == max {
 		problems := PlayMoney(options, moneyGoal)
 

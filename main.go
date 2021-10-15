@@ -23,14 +23,14 @@ func main() {
 
 	options := DefaultPlayOptions()
 
-	log.Println("Timing...")
-	recurseTime, result := TimeResult(func() UpgradePath {
-		return PlayRecurse(
-			options, 1000, testArray, []int{},
-			0, testLevels*len(testArray),
-		)
-	})
-	log.Println(recurseTime, result)
+	log.Println("Calculating...")
+	// recurseTime, result := TimeResult(func() UpgradePath {
+	// 	return PlayRecurse(
+	// 		options, 1000, testArray, []int{},
+	// 		0, testLevels*len(testArray),
+	// 	)
+	// })
+	// log.Println(recurseTime, result)
 
 	threadedTime, result := TimeResult(func() UpgradePath {
 		return RecurseThreaded(
