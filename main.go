@@ -22,11 +22,10 @@ func main() {
 	}
 
 	options := DefaultPlayOptions()
-	options.Upgrades = GeneratePattern(testArray, testLevels)
-
-	log.Println("Running performance checks...")
 
 	log.Println("Timing...")
+
+	log.Println(Play(GeneratePattern(testArray, testLevels), options))
 
 	// syncTime, result := Time(func() UpgradePath {
 	// 	return Optimize(

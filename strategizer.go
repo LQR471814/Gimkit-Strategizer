@@ -14,7 +14,6 @@ type UpgradePath struct {
 
 type PlayOptions struct {
 	Stats         UpgradeStats
-	Upgrades      []int
 	SetbackChance float32
 	Money         float32
 	Rand          *rand.Rand
@@ -28,7 +27,6 @@ func DefaultPlayOptions() PlayOptions {
 			MULTIPLIER:         0,
 			INSURANCE:          0,
 		},
-		Upgrades:      []int{},
 		SetbackChance: 0,
 		Money:         0,
 		Rand:          nil,
@@ -53,13 +51,13 @@ func CopyStats(stats UpgradeStats) UpgradeStats {
 	return newMap
 }
 
-func Play(o PlayOptions) int {
+func Play(upgrades []int, o PlayOptions) int {
 	problems := 0
 	money := o.Money
 
 	stats := CopyStats(o.Stats)
 
-	for _, target := range o.Upgrades {
+	for _, target := range upgrades {
 		upgrades, ok := (*Index)[target]
 		if !(stats[target]+1 < len(upgrades)) && ok {
 			continue
@@ -121,10 +119,8 @@ func Permute(base, upgrades []int, depth, max int) [][]int {
 
 func Optimize(sequence, upgrades []int, options *PlayOptions, depth, max int) UpgradePath {
 	if !(depth < max) {
-		newOptions := *options
-		newOptions.Upgrades = sequence
 		return UpgradePath{
-			Problems: Play(newOptions),
+			Problems: Play(sequence, *options),
 			Sequence: sequence,
 		}
 	}
