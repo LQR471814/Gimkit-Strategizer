@@ -1,7 +1,9 @@
 package main
 
 import (
+	"log"
 	"math/rand"
+	"time"
 )
 
 type UpgradeStats = map[int]int
@@ -107,6 +109,34 @@ func PlayUpgrade(o PlayOptions, target int) (PlayOptions, int) {
 	return o, problems
 }
 
+func PermutePlay(options PlayOptions, upgrades, sequence []int, depth, max int) ([]UpgradePath, []PlayOptions) {
+	if depth == max {
+		return []UpgradePath{{
+			Sequence: sequence,
+			Problems: 0,
+		}}, []PlayOptions{options}
+	}
+
+	sequences := []UpgradePath{}
+	states := []PlayOptions{}
+	for u := range upgrades {
+		lowerOption, problems := PlayUpgrade(options, u)
+		p, o := PermutePlay(
+			lowerOption, upgrades,
+			append(sequence, u), depth+1, max,
+		)
+
+		for i := range p {
+			p[i].Problems += problems
+		}
+
+		sequences = append(sequences, p...)
+		states = append(states, o...)
+	}
+
+	return sequences, states
+}
+
 func PlayRecurse(options PlayOptions, moneyGoal float32, upgrades, sequence []int, depth, max int) UpgradePath {
 	if depth == max {
 		problems := PlayMoney(options, moneyGoal)
@@ -126,11 +156,38 @@ func PlayRecurse(options PlayOptions, moneyGoal float32, upgrades, sequence []in
 			depth+1, max,
 		)
 
-		if min.Problems < 0 || problemsToUpgrade < min.Problems {
+		if min.Problems < 0 || problemsToUpgrade+path.Problems < min.Problems {
 			min = UpgradePath{
 				Sequence: path.Sequence,
 				Problems: problemsToUpgrade + path.Problems,
 			}
+		}
+	}
+
+	return min
+}
+
+func RecurseThreaded(options PlayOptions, moneyGoal float32, upgrades []int, threadDepth, max int) UpgradePath {
+	if !(threadDepth > 0) {
+		log.Fatal("Thread depth must be greater than 0")
+	}
+
+	roots, states := PermutePlay(options, upgrades, []int{}, 0, threadDepth)
+	results := make(chan UpgradePath, len(roots))
+	for i := range roots {
+		go func(s PlayOptions, r UpgradePath) {
+			s.Rand = rand.New(rand.NewSource(time.Now().UnixNano()))
+			result := PlayRecurse(s, moneyGoal, upgrades, r.Sequence, threadDepth, max)
+			result.Problems += r.Problems //? Add initial problems
+			results <- result
+		}(states[i], roots[i])
+	}
+
+	min := UpgradePath{Problems: -1}
+	for i := 0; i < len(roots); i++ {
+		path := <-results
+		if min.Problems < 0 || path.Problems < min.Problems {
+			min = path
 		}
 	}
 
