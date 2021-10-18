@@ -14,7 +14,7 @@ func main() {
 		log.Println(http.ListenAndServe("localhost:6060", nil))
 	}()
 
-	testLevels := 5
+	// testLevels := 5
 	testArray := []int{
 		MONEY_PER_QUESTION,
 		STREAK_BONUS,
@@ -22,6 +22,8 @@ func main() {
 	}
 
 	options := DefaultPlayOptions()
+
+	log.Println(PermutePlay(options, testArray, []int{}, 0, 2))
 
 	log.Println("Calculating...")
 	// recurseTime, result := TimeResult(func() UpgradePath {
@@ -32,14 +34,14 @@ func main() {
 	// })
 	// log.Println(recurseTime, result)
 
-	threadedTime, result := TimeResult(func() UpgradePath {
-		return RecurseThreaded(
-			options, 1000, testArray,
-			2, testLevels*len(testArray),
-		)
-	})
+	// threadedTime, result := TimeResult(func() UpgradePath {
+	// 	return RecurseThreaded(
+	// 		options, 1000, testArray,
+	// 		2, testLevels*len(testArray),
+	// 	)
+	// })
 
-	log.Println(threadedTime, result)
+	// log.Println(threadedTime, result)
 }
 
 func TimeResult(f func() UpgradePath) (time.Duration, UpgradePath) {
