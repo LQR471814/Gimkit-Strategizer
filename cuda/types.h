@@ -57,6 +57,12 @@ struct RecurseState
 	int target;
 };
 
+struct TRecurseResult {
+	struct RecurseState init;
+	int problems;
+	int *sequence;
+};
+
 struct UpgradeLevel
 {
 	float value;

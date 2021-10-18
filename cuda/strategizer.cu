@@ -184,9 +184,16 @@ __host__ __device__ int playRecursive(RecurseContext *c, RecurseState r, int *re
 	return min;
 }
 
-__global__ void computeStrategy(RecurseContext *c, RecurseState r, int *result, int *problemsRequired, int depth)
+__global__ void computeStrategy(RecurseContext *c, TRecurseResult *results, int rootSize, int depth)
 {
-	playRecursive(c, r, result, depth);
+	int index = threadIdx.x + blockIdx.x * blockDim.x;
+	if (index > rootSize) {
+		return;
+	};
+
+	results[index].problems = playRecursive(
+		c, results[index].init, results[index].sequence, depth
+	);
 }
 
 int
@@ -203,7 +210,8 @@ main(void)
 		STREAK_BONUS,
 		MULTIPLIER};
 
-	int *recurseUpgrades = new int[3];
+	int upgradeCount = 3;
+	int *recurseUpgrades = new int[upgradeCount];
 	recurseUpgrades[0] = MONEY_PER_QUESTION;
 	recurseUpgrades[1] = STREAK_BONUS;
 	recurseUpgrades[2] = MULTIPLIER;
@@ -221,6 +229,15 @@ main(void)
 
 	std::vector<Permutation> result = permuteRecursive(&c, r, 0);
 
+	int threads = 256;
+	int threadBlocks = result.size() / threads;
+	if (threadBlocks < 1) {
+		threadBlocks = 1;
+	};
+
+	TRecurseResult *results;
+	cudaMallocManaged(&results, sizeof(TRecurseResult) * result.size());
+
 	int min = -1;
 	int *minresult;
 	for (Permutation p : result)
@@ -237,7 +254,7 @@ main(void)
 				maxDepth,
 				1000,
 				recurseUpgrades,
-				3,
+				upgradeCount,
 			};
 
 			int *recurseResult = new int[maxDepth];
@@ -252,7 +269,7 @@ main(void)
 				min = problems;
 				minresult = recurseResult;
 			} else {
-				free(recurseResult);
+				delete[] recurseResult;
 			};
 		}
 
