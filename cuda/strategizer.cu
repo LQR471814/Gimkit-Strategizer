@@ -196,66 +196,43 @@ __global__ void computeStrategy(RecurseContext *c, TRecurseResult *results, int 
 	);
 }
 
-int
-main(void)
-{
-	int syncDepth = 2;
-	int maxDepth = 5;
-
-	curandState *d_state;
-	cudaMalloc(&d_state, sizeof(curandState));
-
-	std::vector<int> upgrades = {
-		MONEY_PER_QUESTION,
-		STREAK_BONUS,
-		MULTIPLIER};
-
-	int upgradeCount = 3;
-	int *recurseUpgrades = new int[upgradeCount];
-	recurseUpgrades[0] = MONEY_PER_QUESTION;
-	recurseUpgrades[1] = STREAK_BONUS;
-	recurseUpgrades[2] = MULTIPLIER;
-
-	PermuteContext c = {
-		&index,
-		upgrades, syncDepth // upgrades, max
+void assignVecToPointer(std::vector<int> vec, int *result, int size) {
+	for (int i = 0; i < size; i++) {
+		result[i] = vec[i];
 	};
+}
 
+std::vector<Permutation> getRoots(std::vector<int> upgrades, int syncDepth) {
+	PermuteContext c = {&index, upgrades, syncDepth};
 	PermuteState r = {
 		UpgradeStats{0, 0, 0, 0}, // play
 		0, 0, NULL,			      // play
 		std::vector<int>{},		  // sequence
 	};
 
-	std::vector<Permutation> result = permuteRecursive(&c, r, 0);
+	return permuteRecursive(&c, r, 0);
+}
 
-	int threads = 256;
-	int threadBlocks = result.size() / threads;
-	if (threadBlocks < 1) {
-		threadBlocks = 1;
+int computeSync(std::vector<int> upgrades, int moneyGoal, int syncDepth, int maxDepth, int *result) {
+	std::vector<Permutation> roots = getRoots(upgrades, syncDepth);
+	int upgradeCount = upgrades.size();
+	int *recurseUpgrades = new int[upgradeCount];
+	assignVecToPointer(upgrades, recurseUpgrades, upgradeCount);
+
+	RecurseContext rc = {
+		&index,
+		maxDepth,
+		moneyGoal,
+		recurseUpgrades,
+		upgradeCount,
 	};
 
-	TRecurseResult *results;
-	cudaMallocManaged(&results, sizeof(TRecurseResult) * result.size());
-
 	int min = -1;
-	int *minresult;
-	for (Permutation p : result)
+	for (Permutation p : roots)
 	{
-		printf(
-			"Problems: %d ------------- \n",
-			p.problems);
-
 		for (int u : upgrades)
 		{
 			RecurseState rs = {p.play, u};
-			RecurseContext rc = {
-				&index,
-				maxDepth,
-				1000,
-				recurseUpgrades,
-				upgradeCount,
-			};
 
 			int *recurseResult = new int[maxDepth];
 			for (int i = 0; i < p.sequence.size(); i++)
@@ -267,59 +244,98 @@ main(void)
 
 			if (min < 0 || problems < min) {
 				min = problems;
-				minresult = recurseResult;
+				std::copy(recurseResult, recurseResult + maxDepth, result);
 			} else {
 				delete[] recurseResult;
 			};
 		}
+	};
 
-		printf("Upgrades ");
-		for (int i : p.sequence)
-		{
-			printf("%d ", i);
+	return min;
+}
+
+int computeThreaded(std::vector<int> upgrades, int moneyGoal, int syncDepth, int maxDepth, int *output) {
+	std::vector<Permutation> roots = getRoots(upgrades, syncDepth);
+	int upgradeCount = upgrades.size();
+	int *recurseUpgrades = new int[upgradeCount];
+	assignVecToPointer(upgrades, recurseUpgrades, upgradeCount);
+
+	RecurseContext rc = {
+		&index,
+		maxDepth,
+		moneyGoal,
+		recurseUpgrades,
+		upgradeCount,
+	};
+
+	int threads = 256;
+	int threadBlocks = roots.size() / threads;
+	if (threadBlocks < 1) {
+		threadBlocks = 1;
+	};
+
+	TRecurseResult *results;
+	cudaMallocManaged(&results, sizeof(TRecurseResult) * roots.size() * upgradeCount);
+
+	for (int u = 0; u < upgradeCount; u++) {
+		for (int i = 0; i < roots.size(); i++) {
+			int index = sizeof(TRecurseResult) * (u * roots.size() + i);
+
+			int *sequence = NULL;
+			cudaMallocManaged(&sequence, maxDepth * sizeof(int));
+
+			curandState *rState;
+			cudaMalloc(&rState, sizeof(curandState));
+
+			PlayState playCtx = roots[index].play;
+			playCtx.randState = rState;
+
+			results[index] = TRecurseResult{
+				RecurseState{playCtx, u},
+				roots[index].problems,
+				sequence
+			};
 		};
-
-		printf("\n");
 	}
+
+	computeStrategy<<<threadBlocks, threads>>>(
+		&rc, results, roots.size(), syncDepth
+	);
+
+	cudaDeviceSynchronize();
+
+	int min = -1;
+	for (int i = 0; i < roots.size() * 3; i++) {
+		if (min < 0 || results[i].problems < min) {
+			min = results[i].problems;
+			std::copy(results[i].sequence, results[i].sequence + maxDepth, output);
+		};
+	};
+
+	cudaFree(results);
+	return min;
+}
+
+int
+main(void)
+{
+	int syncDepth = 2;
+	int maxDepth = 5;
+
+	std::vector<int> upgrades = {
+		MONEY_PER_QUESTION,
+		STREAK_BONUS,
+		MULTIPLIER};
+
+	int *result = new int[maxDepth];
+	// int min = computeSync(upgrades, 1000, syncDepth, maxDepth, result);
+	int min = computeThreaded(upgrades, 1000, syncDepth, maxDepth, result);
 
 	printf("Minimum Problems: %d\n", min);
 	printf("Sequence Required: ");
 	for (int i = 0; i < maxDepth; i++) {
-		printf("%d ", minresult[i]);
+		printf("%d ", result[i]);
 	};
 
 	return 0;
-	// int *options;
-	// int optionSize = 3;
-	// options[0] = MONEY_PER_QUESTION;
-	// options[1] = STREAK_BONUS;
-	// options[2] = MULTIPLIER;
-
-	// cudaMallocManaged(&options, optionSize * sizeof(int));
-
-	// curandGenerator_t *g;
-	// curandCreateGenerator(g, CURAND_RNG_PSEUDO_DEFAULT);
-
-	// struct RecurseState r = RecurseState{
-	// 	PlayState{
-	// 		UpgradeStats{ 0, 0, 0, 0 },
-	// 		0, 0, g,
-	// 	},
-
-	// };
-
-	// // Run kernel on 1M elements on the GPU
-	// compute<<<1, 1>>>();
-
-	// // Wait for GPU to finish before accessing on host
-	// cudaDeviceSynchronize();
-
-	// // Check for errors (all values should be 3.0f)
-	// for (int i = 0; i < N; i++)
-	// 	std::cout << printf("%f", r[i]) << std::endl;
-
-	// // Free memory
-	// cudaFree(r);
-
-	// return 0;
 }
