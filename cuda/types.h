@@ -27,7 +27,7 @@ struct Permutation
 {
 	int problems;
 	std::vector<int> sequence;
-	PlayState play;
+	struct PlayState play;
 };
 
 struct PermuteContext {
@@ -77,10 +77,9 @@ enum Upgrades
 	INSURANCE,
 };
 
-const int MAX_LEVEL = 10;
-
 struct UpgradeIndex
 {
+	int MAX_LEVEL;
 	struct UpgradeLevel moneyPerQuestion[10];
 	struct UpgradeLevel streakBonus[10];
 	struct UpgradeLevel multiplier[10];
@@ -88,6 +87,7 @@ struct UpgradeIndex
 };
 
 struct UpgradeIndex index = {
+	10,
 	{
 		{1, 0},
 		{5, 10},
