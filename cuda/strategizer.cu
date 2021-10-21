@@ -165,13 +165,16 @@ __host__ __device__ int playRecursive(RecurseContext *c, RecurseState r, int *re
 	int min = -1, minTarget = -1;
 	for (int i = 0; i < (*c).upgradesSize; i++)
 	{
-		PlayState lowerStats;
 		printf("Depth %d Target %d\n", depth, (*c).upgrades[i]);
 		GoalResult res = playUpgrade((*c).data, r.play, (*c).upgrades[i]);
 		printf("Made it\n");
 
-		lowerStats.money = res.newMoney;
-		lowerStats.stats = incrementStat(r.play.stats, (*c).upgrades[i]);
+		PlayState lowerStats = {
+			incrementStat(r.play.stats, (*c).upgrades[i]),
+			r.play.setbackChance,
+			res.newMoney,
+			r.play.randState
+		};
 
 		int lowerProblems = res.problems + playRecursive(
 			c, RecurseState{lowerStats, i},
@@ -267,11 +270,11 @@ int computeSync(std::vector<int> upgrades, int moneyGoal, int syncDepth, int max
 int computeThreaded(std::vector<int> upgrades, int moneyGoal, int syncDepth, int maxDepth, int *output) {
 	std::vector<Permutation> roots = getRoots(upgrades, syncDepth);
 	int upgradeCount = upgrades.size();
-	int *recurseUpgrades = NULL;
+	int *recurseUpgrades;
 	cudaMallocManaged(&recurseUpgrades, sizeof(int) * upgradeCount);
 	assignVecToPointer(upgrades, recurseUpgrades, upgradeCount);
 
-	UpgradeIndex *data = NULL;
+	UpgradeIndex *data;
 	cudaMallocManaged(&data, sizeof(UpgradeIndex));
 	*data = index;
 
@@ -306,7 +309,7 @@ int computeThreaded(std::vector<int> upgrades, int moneyGoal, int syncDepth, int
 			cudaMallocManaged(&sequence, maxDepth * sizeof(int));
 
 			curandState *rState;
-			cudaMalloc(&rState, sizeof(curandState));
+			cudaMallocManaged(&rState, sizeof(curandState));
 
 			PlayState playCtx = roots[index].play;
 			playCtx.randState = rState;
