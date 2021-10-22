@@ -6,19 +6,16 @@
 #include <math.h>
 #include "types.h"
 
-struct Scam {
+struct ScamResult {
 	int someNumber;
-	int result;
+	float *result;
+	curandState *randGen;
 };
 
-__device__ struct Scam sub(int *data, int a, int b) {
-	return Scam{
-		0, (*data) * (b - a)
-	};
-}
-
-__global__ void thread(int *data, Scam *result) {
-	result[threadIdx.x] = sub(data, 3, 2);
+__global__ void thread(int *data, ScamResult *result) {
+	printf("Initializing generator %p\n", result[threadIdx.x].randGen, *result[threadIdx.x].randGen);
+	curand_init(1234, threadIdx.x, 0, result[threadIdx.x].randGen);
+	*result[threadIdx.x].result = curand_uniform(result[threadIdx.x].randGen);
 }
 
 int main() {
@@ -28,14 +25,25 @@ int main() {
 	cudaMallocManaged(&data, sizeof(int));
 	*data = 3;
 
-	Scam *res;
-	cudaMallocManaged(&res, sizeof(Scam) * threads);
+	ScamResult *res;
+	cudaMallocManaged(&res, sizeof(ScamResult) * threads);
+	for (int i = 0; i < threads; i++) {
+		float *result;
+		cudaMallocManaged(&result, sizeof(int));
+
+		curandState *gen;
+		cudaMallocManaged(&gen, sizeof(curandState));
+
+		res[i] = ScamResult{
+			0, result, gen
+		};
+	};
 
 	thread<<<1, threads>>>(data, res);
 	cudaDeviceSynchronize();
 
 	for (int i = 0; i < threads; i++) {
-		printf("result %d\n", res[i].result);
+		printf("result %f\n", *res[i].result);
 	};
 
 	return 0;
