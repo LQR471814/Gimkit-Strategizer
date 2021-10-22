@@ -4,7 +4,7 @@
 struct GoalResult
 {
 	int problems;
-	int newMoney;
+	float newMoney;
 };
 
 struct UpgradeStats
@@ -19,7 +19,7 @@ struct PlayState
 {
 	struct UpgradeStats stats;
 	float setbackChance;
-	int money;
+	float money;
 	curandState *randState;
 };
 
@@ -45,20 +45,14 @@ struct PermuteState
 struct RecurseContext {
 	struct UpgradeIndex *data;
 	int max;
-	int moneyGoal;
+	float moneyGoal;
 
 	int *upgrades;
 	int upgradesSize;
 };
 
-struct RecurseState
-{
-	struct PlayState play;
-	int target;
-};
-
 struct TRecurseResult {
-	struct RecurseState init;
+	struct PlayState init;
 	int problems;
 	int *sequence;
 };
@@ -69,71 +63,70 @@ struct UpgradeLevel
 	int cost;
 };
 
-enum Upgrades
-{
-	MONEY_PER_QUESTION,
-	STREAK_BONUS,
-	MULTIPLIER,
-	INSURANCE,
-};
+const int MONEY_PER_QUESTION = 0;
+const int STREAK_BONUS = 1;
+const int MULTIPLIER = 2;
+const int INSURANCE = 3;
 
 struct UpgradeIndex
 {
 	int MAX_LEVEL;
-	struct UpgradeLevel moneyPerQuestion[10];
-	struct UpgradeLevel streakBonus[10];
-	struct UpgradeLevel multiplier[10];
-	struct UpgradeLevel insurance[10];
+	UpgradeLevel *moneyPerQuestion;
+	UpgradeLevel *streakBonus;
+	UpgradeLevel *multiplier;
+	UpgradeLevel *insurance;
 };
 
-struct UpgradeIndex index = {
-	10,
-	{
-		{1, 0},
-		{5, 10},
-		{50, 100},
-		{100, 1000},
-		{500, 10000},
-		{2000, 75000},
-		{5000, 300000},
-		{10000, 1000000},
-		{250000, 10000000},
-		{1000000, 100000000},
-	},
-	{
-		{1, 0},
-		{3, 20},
-		{10, 200},
-		{50, 2000},
-		{250, 20000},
-		{1200, 200000},
-		{6500, 2000000},
-		{35000, 20000000},
-		{175000, 200000000},
-		{1000000, 2000000000},
-	},
-	{
-		{1, 0},
-		{1.5, 50},
-		{2, 300},
-		{3, 2000},
-		{5, 12000},
-		{8, 85000},
-		{12, 700000},
-		{18, 6500000},
-		{30, 65000000},
-		{100, 1000000000},
-	},
-	{
-		{0, 0},
-		{10, 10},
-		{25, 250},
-		{40, 1000},
-		{50, 25000},
-		{70, 100000},
-		{80, 1000000},
-		{90, 5000000},
-		{95, 25000000},
-		{99, 500000000},
-	},
+std::vector<UpgradeLevel> moneyPerQuestionLevels = {
+	{1, 0},
+	{5, 10},
+	{50, 100},
+	{100, 1000},
+	{500, 10000},
+	{2000, 75000},
+	{5000, 300000},
+	{10000, 1000000},
+	{250000, 10000000},
+	{1000000, 100000000},
 };
+
+std::vector<UpgradeLevel> streakBonusLevels = {
+	{1, 0},
+	{3, 20},
+	{10, 200},
+	{50, 2000},
+	{250, 20000},
+	{1200, 200000},
+	{6500, 2000000},
+	{35000, 20000000},
+	{175000, 200000000},
+	{1000000, 2000000000},
+};
+
+std::vector<UpgradeLevel> multiplierLevels = {
+	{1, 0},
+	{1.5, 50},
+	{2, 300},
+	{3, 2000},
+	{5, 12000},
+	{8, 85000},
+	{12, 700000},
+	{18, 6500000},
+	{30, 65000000},
+	{100, 1000000000},
+};
+
+std::vector<UpgradeLevel> insuranceLevels = {
+	{0, 0},
+	{10, 10},
+	{25, 250},
+	{40, 1000},
+	{50, 25000},
+	{70, 100000},
+	{80, 1000000},
+	{90, 5000000},
+	{95, 25000000},
+	{99, 500000000},
+};
+
+struct UpgradeIndex index = {10};

@@ -6,6 +6,17 @@
 #include <math.h>
 #include "types.h"
 
+__host__ __device__ void printPlayState(PlayState p) {
+	printf(
+		"$%d Stats %d %d %d %d\n",
+		(int)p.money,
+		p.stats.moneyPerQuestion,
+		p.stats.streakBonus,
+		p.stats.multiplier,
+		p.stats.insurance
+	);
+}
+
 __host__ __device__ UpgradeStats incrementStat(UpgradeStats s, int id)
 {
 	switch (id)
@@ -61,11 +72,11 @@ __host__ __device__ struct UpgradeLevel getUpgrade(UpgradeIndex *data, int id, i
 	return UpgradeLevel{};
 }
 
-__host__ __device__ struct GoalResult playGoal(UpgradeIndex *data, PlayState s, int goal)
+__host__ __device__ struct GoalResult playGoal(UpgradeIndex *data, PlayState s, float goal)
 {
-	int streak = 0;
 	int problems = 0;
-	int money = s.money;
+	float streak = 0;
+	float money = s.money;
 
 	UpgradeLevel mq = (*data).moneyPerQuestion[s.stats.moneyPerQuestion];
 	UpgradeLevel sb = (*data).streakBonus[s.stats.streakBonus];
@@ -97,15 +108,14 @@ __host__ __device__ struct GoalResult playGoal(UpgradeIndex *data, PlayState s, 
 
 __host__ __device__ struct GoalResult playUpgrade(UpgradeIndex *data, PlayState s, int target)
 {
-	// if (target > data->MAX_LEVEL) //TODO: Fix this later
-	// {
-	// 	return GoalResult{0, s.money};
-	// };
+	if (getStat(s.stats, target) > data->MAX_LEVEL)
+	{
+		return GoalResult{0, s.money};
+	};
 
 	int goal = getUpgrade(data, target, getStat(s.stats, target) + 1).cost;
 	GoalResult result = playGoal(data, s, goal);
 	result.newMoney -= goal;
-	printf("Money %d Problems %d\n", result.newMoney, result.problems);
 
 	return result;
 }
@@ -147,39 +157,47 @@ struct std::vector<Permutation> permuteRecursive(PermuteContext *c, PermuteState
 	return permutes;
 }
 
-__host__ __device__ int playRecursive(RecurseContext *c, RecurseState r, int *result, int depth)
+__host__ __device__ int playRecursive(RecurseContext *c, PlayState play, int *result, int depth)
 {
-	printf("Depth %d\n", depth);
-
-	if (r.play.money >= (*c).moneyGoal)
+	// printf(" -----> Depth %d\n", depth);
+	if (play.money >= (*c).moneyGoal)
 	{
+		// printf("Already done %f\n", play.money);
 		return 0;
 	};
 
 	if (depth == (*c).max)
 	{
-		GoalResult res = playGoal((*c).data, r.play, (*c).moneyGoal);
+		GoalResult res = playGoal((*c).data, play, (*c).moneyGoal);
+		// printf("Maxed Depth %d Problems %d\n", depth, res.problems);
+		// printPlayState(play);
 		return res.problems;
 	};
 
 	int min = -1, minTarget = -1;
 	for (int i = 0; i < (*c).upgradesSize; i++)
 	{
-		printf("Depth %d Target %d\n", depth, (*c).upgrades[i]);
-		GoalResult res = playUpgrade((*c).data, r.play, (*c).upgrades[i]);
-		printf("Made it\n");
-
+		GoalResult res = playUpgrade((*c).data, play, (*c).upgrades[i]);
+		// printf("Start Depth %d Problems %d\n", depth, res.problems);
 		PlayState lowerStats = {
-			incrementStat(r.play.stats, (*c).upgrades[i]),
-			r.play.setbackChance,
+			incrementStat(play.stats, (*c).upgrades[i]),
+			play.setbackChance,
 			res.newMoney,
-			r.play.randState
+			play.randState
 		};
 
+		// if (depth == 2) {
+		// 	printf("Depth %d Upgrade Target %d ---------\n", depth, (*c).upgrades[i]);
+		// 	printPlayState(play);
+		// 	printf(" -> ");
+		// 	printPlayState(lowerStats);
+		// };
+
 		int lowerProblems = res.problems + playRecursive(
-			c, RecurseState{lowerStats, i},
+			c, lowerStats,
 			result, depth + 1
 		);
+		// printf("End Depth %d Problems %d\n", depth, lowerProblems);
 
 		if (min < 0 || lowerProblems < min)
 		{
@@ -199,13 +217,12 @@ __global__ void computeStrategy(RecurseContext *c, TRecurseResult *results, int 
 		return;
 	};
 
-	printf("Max %d Depth %d\n", c->max, depth);
+	printPlayState(results[index].init);
 	int problems = playRecursive(
 		c, results[index].init, results[index].sequence, depth
 	);
 
 	printf("Problems %d Index %d\n", problems, index);
-
 	results[index].problems = problems;
 }
 
@@ -215,8 +232,15 @@ void assignVecToPointer(std::vector<int> vec, int *result, int size) {
 	};
 }
 
-std::vector<Permutation> getRoots(std::vector<int> upgrades, int syncDepth) {
-	PermuteContext c = {&index, upgrades, syncDepth};
+void allocUpgradeLevels(UpgradeLevel **results, std::vector<UpgradeLevel> levels) {
+	cudaMallocManaged(results, sizeof(UpgradeLevel) * levels.size());
+	for (int i = 0; i < levels.size(); i++) {
+		(*results)[i] = levels[i];
+	};
+}
+
+std::vector<Permutation> getRoots(UpgradeIndex *data, std::vector<int> upgrades, int syncDepth) {
+	PermuteContext c = {data, upgrades, syncDepth};
 	PermuteState r = {
 		UpgradeStats{0, 0, 0, 0}, // play
 		0, 0, NULL,			      // play
@@ -226,69 +250,106 @@ std::vector<Permutation> getRoots(std::vector<int> upgrades, int syncDepth) {
 	return permuteRecursive(&c, r, 0);
 }
 
-int computeSync(std::vector<int> upgrades, int moneyGoal, int syncDepth, int maxDepth, int *result) {
-	std::vector<Permutation> roots = getRoots(upgrades, syncDepth);
-	int upgradeCount = upgrades.size();
-	int *recurseUpgrades = new int[upgradeCount];
-	assignVecToPointer(upgrades, recurseUpgrades, upgradeCount);
+struct UpgradeIndex* initializeIndex() {
+	UpgradeIndex *data;
+	cudaMallocManaged(&data, sizeof(UpgradeIndex));
+	data->MAX_LEVEL = index.MAX_LEVEL;
+
+	allocUpgradeLevels(&(*data).moneyPerQuestion, moneyPerQuestionLevels);
+	allocUpgradeLevels(&(*data).streakBonus, streakBonusLevels);
+	allocUpgradeLevels(&(*data).multiplier, multiplierLevels);
+	allocUpgradeLevels(&(*data).insurance, insuranceLevels);
+
+	return data;
+}
+
+int* initializeSequence(std::vector<int> init, int targetSize) {
+	int *sequence;
+	cudaMallocManaged(&sequence, sizeof(int) * targetSize);
+
+	printf("Sequence ");
+
+	for (int i = 0; i < targetSize; i++) {
+		sequence[i] = -1;
+		if (i < init.size()) {
+			printf("%d ", init[i]);
+			sequence[i] = init[i];
+		};
+	};
+
+	printf("\n");
+
+	return sequence;
+}
+
+int* initializeUpgrades(std::vector<int> init) {
+	int *upgrades;
+	cudaMallocManaged(&upgrades, sizeof(int) * init.size());
+	for (int i = 0; i < init.size(); i++) {
+		upgrades[i] = init[i];
+	};
+
+	return upgrades;
+}
+
+int computeSync(std::vector<int> upgrades, float moneyGoal, int syncDepth, int maxDepth, int *result) {
+	struct UpgradeIndex *data = initializeIndex();
+	std::vector<Permutation> roots = getRoots(data, upgrades, syncDepth);
+	int *recurseUpgrades = initializeUpgrades(upgrades);
 
 	RecurseContext rc = {
-		&index,
+		data,
 		maxDepth,
 		moneyGoal,
 		recurseUpgrades,
-		upgradeCount,
+		static_cast<int>(upgrades.size()),
 	};
+
+	printf("Memory Allocation Succeeded\n");
+	printf("Roots: %d\n", static_cast<int>(roots.size()));
 
 	int min = -1;
 	for (Permutation p : roots)
 	{
-		for (int u : upgrades)
-		{
-			RecurseState rs = {p.play, u};
+		int *recurseResult = initializeSequence(p.sequence, maxDepth);
+		int problems = p.problems + playRecursive(&rc, p.play, recurseResult, syncDepth);
 
-			int *recurseResult = new int[maxDepth];
-			for (int i = 0; i < p.sequence.size(); i++)
-			{
-				recurseResult[i] = p.sequence[i];
+		printf("Problems: %d |", problems);
+		for (int i = 0; i < maxDepth; i++) {
+			printf(" %d", recurseResult[i]);
+		};
+		printf("\n");
+
+		if (min < 0 || problems < min) {
+			min = problems;
+			for (int i = 0; i < maxDepth; i++) {
+				result[i] = recurseResult[i];
 			};
-
-			int problems = p.problems + playRecursive(&rc, rs, recurseResult, syncDepth);
-
-			if (min < 0 || problems < min) {
-				min = problems;
-				std::copy(recurseResult, recurseResult + maxDepth, result);
-			} else {
-				delete[] recurseResult;
-			};
-		}
+		} else {
+			cudaFree(recurseResult);
+		};
 	};
 
 	return min;
 }
 
-int computeThreaded(std::vector<int> upgrades, int moneyGoal, int syncDepth, int maxDepth, int *output) {
-	std::vector<Permutation> roots = getRoots(upgrades, syncDepth);
-	int upgradeCount = upgrades.size();
-	int *recurseUpgrades;
-	cudaMallocManaged(&recurseUpgrades, sizeof(int) * upgradeCount);
-	assignVecToPointer(upgrades, recurseUpgrades, upgradeCount);
+int computeThreaded(std::vector<int> upgrades, float moneyGoal, int syncDepth, int maxDepth, int *output) {
+	struct UpgradeIndex *data = initializeIndex();
 
-	UpgradeIndex *data;
-	cudaMallocManaged(&data, sizeof(UpgradeIndex));
-	*data = index;
+	std::vector<Permutation> roots = getRoots(data, upgrades, syncDepth);
+	int *recurseUpgrades = initializeUpgrades(upgrades);
 
-	RecurseContext ctx = RecurseContext{
+	RecurseContext c = {
 		data,
 		maxDepth,
 		moneyGoal,
 		recurseUpgrades,
-		upgradeCount,
+		static_cast<int>(upgrades.size()),
 	};
 
 	RecurseContext *rc = NULL;
 	cudaMallocManaged(&rc, sizeof(RecurseContext));
-	*rc = ctx;
+	*rc = c;
 
 	int threads = 256;
 	int threadBlocks = roots.size() / threads;
@@ -297,30 +358,25 @@ int computeThreaded(std::vector<int> upgrades, int moneyGoal, int syncDepth, int
 	};
 
 	TRecurseResult *results;
-	cudaMallocManaged(&results, sizeof(TRecurseResult) * roots.size() * upgradeCount);
+	cudaMallocManaged(&results, sizeof(TRecurseResult) * roots.size());
 
 	printf("Roots %zd Blocks %d\n", roots.size(), threadBlocks);
 
-	for (int u = 0; u < upgradeCount; u++) {
-		for (int i = 0; i < roots.size(); i++) {
-			int index = (u * roots.size() + i);
+	for (int i = 0; i < roots.size(); i++) {
+		int *sequence = initializeSequence(roots[i].sequence, maxDepth);
 
-			int *sequence = NULL;
-			cudaMallocManaged(&sequence, maxDepth * sizeof(int));
+		curandState *rState;
+		cudaMallocManaged(&rState, sizeof(curandState));
 
-			curandState *rState;
-			cudaMallocManaged(&rState, sizeof(curandState));
+		PlayState play = roots[i].play;
+		play.randState = rState;
 
-			PlayState playCtx = roots[index].play;
-			playCtx.randState = rState;
-
-			results[index] = TRecurseResult{
-				RecurseState{playCtx, u},
-				roots[index].problems,
-				sequence
-			};
+		results[i] = TRecurseResult{
+			play,
+			roots[i].problems,
+			sequence
 		};
-	}
+	};
 
 	printf("Memory Allocation Succeeded\n");
 
@@ -331,11 +387,13 @@ int computeThreaded(std::vector<int> upgrades, int moneyGoal, int syncDepth, int
 	cudaDeviceSynchronize();
 
 	int min = -1;
-	for (int i = 0; i < roots.size() * upgradeCount; i++) {
+	for (int i = 0; i < roots.size() * upgrades.size(); i++) {
 		if (min < 0 || results[i].problems < min) {
 			printf("Problems: %d\n", results[i].problems);
 			min = results[i].problems;
-			std::copy(results[i].sequence, results[i].sequence + maxDepth, output);
+			for (int x = 0; x < maxDepth; x++) {
+				output[x] = results[i].sequence[x];
+			};
 		};
 	};
 
@@ -355,8 +413,8 @@ main(void)
 		MULTIPLIER};
 
 	int *result = new int[maxDepth];
-	// int min = computeSync(upgrades, 1000, syncDepth, maxDepth, result);
-	int min = computeThreaded(upgrades, 1000, syncDepth, maxDepth, result);
+	int min = computeSync(upgrades, 10, syncDepth, maxDepth, result);
+	// int min = computeThreaded(upgrades, 10, syncDepth, maxDepth, result);
 
 	printf("Minimum Problems: %d\n", min);
 	printf("Sequence Required: ");
