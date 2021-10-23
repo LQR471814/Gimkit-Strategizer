@@ -1,10 +1,12 @@
 #include <curand.h>
 #include <vector>
 
+using Money = double;
+
 struct GoalResult
 {
 	int problems;
-	float newMoney;
+	Money newMoney;
 };
 
 struct UpgradeStats
@@ -19,7 +21,7 @@ struct PlayState
 {
 	struct UpgradeStats stats;
 	float setbackChance;
-	float money;
+	Money money;
 	curandState *randState;
 };
 
@@ -45,7 +47,7 @@ struct PermuteState
 struct RecurseContext {
 	struct UpgradeIndex *data;
 	int max;
-	float moneyGoal;
+	Money moneyGoal;
 
 	int *upgrades;
 	int upgradesSize;
