@@ -32,7 +32,8 @@ struct Permutation
 	struct PlayState play;
 };
 
-struct PermuteContext {
+struct PermuteContext
+{
 	struct UpgradeIndex *data;
 	std::vector<int> upgrades;
 	int max;
@@ -44,7 +45,8 @@ struct PermuteState
 	std::vector<int> sequence;
 };
 
-struct RecurseContext {
+struct RecurseContext
+{
 	struct UpgradeIndex *data;
 	int max;
 	Money moneyGoal;
@@ -53,7 +55,8 @@ struct RecurseContext {
 	int upgradesSize;
 };
 
-struct TRecurseResult {
+struct TRecurseResult
+{
 	struct PlayState init;
 	int problems;
 	int *sequence;

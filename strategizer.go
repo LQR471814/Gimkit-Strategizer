@@ -139,6 +139,84 @@ func PermutePlay(state PlayState, upgrades, sequence []int, depth, max int) ([]U
 	return sequences, states
 }
 
+type PlayStack struct {
+	target     int
+	problems   int
+	sequence   []int
+	state      PlayState
+	candidates []UpgradePath
+}
+
+func PlayIterative(init PlayState, moneyGoal float32, upgrades []int, max int) UpgradePath {
+	root := PlayStack{
+		upgrades[0], 0,
+		[]int{}, init,
+		[]UpgradePath{},
+	}
+
+	stack := []PlayStack{root}
+	depth := 0
+
+	for {
+		// if stack[depth].state.Money >= moneyGoal {
+		// 	val := stack[len(stack)-1]
+		// 	stack = stack[:len(stack)-1]
+		// 	depth--
+		// 	stack[depth].target++
+		// 	stack[depth].candidates = append(stack[depth].candidates, UpgradePath{0, val.sequence})
+		// 	continue
+		// }
+
+		if stack[depth].target == len(upgrades) {
+			val := stack[len(stack)-1]
+			stack = stack[:len(stack)-1]
+
+			depth--
+			stack[depth].target++
+
+			min := UpgradePath{-1, []int{}}
+			for _, c := range val.candidates {
+				if c.Problems < min.Problems || min.Problems < 0 {
+					min = c
+					min.Problems += stack[depth].problems
+				}
+			}
+
+			if depth == 0 {
+				return min
+			}
+
+			stack[depth].candidates = append(stack[depth].candidates, min)
+			continue
+		}
+
+		if depth == max+1 {
+			problems := PlayMoney(stack[depth].state, moneyGoal)
+			stack[depth].candidates = append(
+				stack[depth].candidates,
+				UpgradePath{
+					Problems: problems,
+					Sequence: stack[depth].sequence,
+				},
+			)
+
+			stack[depth].target++
+			continue
+		}
+
+		lowerOption, problemsToUpgrade := PlayUpgrade(stack[depth].state, stack[depth].target)
+		stack = append(stack, PlayStack{
+			target:     upgrades[0],
+			problems:   problemsToUpgrade,
+			sequence:   append(stack[depth].sequence, stack[depth].target),
+			state:      lowerOption,
+			candidates: []UpgradePath{},
+		})
+
+		depth++
+	}
+}
+
 func PlayRecurse(state PlayState, moneyGoal float32, upgrades, sequence []int, depth, max int) UpgradePath {
 	if state.Money >= moneyGoal {
 		return UpgradePath{

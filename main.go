@@ -23,9 +23,12 @@ func main() {
 
 	options := DefaultPlayOptions()
 
-	log.Println(PermutePlay(options, testArray, []int{}, 0, 2))
+	log.Println(PlayIterative(options, 1000, testArray, 10))
+	log.Println(PlayRecurse(options, 1000, testArray, []int{}, 0, 10))
 
-	log.Println("Calculating...")
+	// log.Println(PermutePlay(options, testArray, []int{}, 0, 2))
+
+	// log.Println("Calculating...")
 	// recurseTime, result := TimeResult(func() UpgradePath {
 	// 	return PlayRecurse(
 	// 		options, 1000, testArray, []int{},

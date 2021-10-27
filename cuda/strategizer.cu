@@ -401,7 +401,7 @@ int computeThreaded(std::vector<int> upgrades, Money moneyGoal, int syncDepth, i
 int main()
 {
 	int syncDepth = 7;
-	int maxDepth = 12;
+	int maxDepth = 11;
 	// Money moneyGoal = 1000000000000; //? First to a trillion
 	Money moneyGoal = 1000;
 
