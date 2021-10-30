@@ -139,81 +139,80 @@ func PermutePlay(state PlayState, upgrades, sequence []int, depth, max int) ([]U
 	return sequences, states
 }
 
-type PlayStack struct {
-	target     int
-	problems   int
-	sequence   []int
-	state      PlayState
-	candidates []UpgradePath
+type PlayStackParams struct {
+	sequence []int
+	state    PlayState
+	problems int
+}
+
+type PlayStackFrame struct {
+	branch  int
+	params  PlayStackParams
+	results []UpgradePath
 }
 
 func PlayIterative(init PlayState, moneyGoal float32, upgrades []int, max int) UpgradePath {
-	root := PlayStack{
-		upgrades[0], 0,
-		[]int{}, init,
-		[]UpgradePath{},
+	root := PlayStackFrame{
+		branch:  0,
+		params:  PlayStackParams{state: init},
+		results: []UpgradePath{},
 	}
 
-	stack := []PlayStack{root}
-	depth := 0
+	stack := []PlayStackFrame{root}
+	iterativeCall := func(params PlayStackParams) {
+		stack = append(stack, PlayStackFrame{
+			params: params,
+		})
+	}
+
+	iterativeReturn := func(value UpgradePath) {
+		stack = stack[:len(stack)-1]
+		stack[len(stack)-1].branch++
+		stack[len(stack)-1].results = append(stack[len(stack)-1].results, value)
+	}
 
 	for {
-		// if stack[depth].state.Money >= moneyGoal {
-		// 	val := stack[len(stack)-1]
-		// 	stack = stack[:len(stack)-1]
-		// 	depth--
-		// 	stack[depth].target++
-		// 	stack[depth].candidates = append(stack[depth].candidates, UpgradePath{0, val.sequence})
-		// 	continue
-		// }
+		currentFrame := stack[len(stack)-1]
+		if currentFrame.params.state.Money >= moneyGoal {
+			iterativeReturn(UpgradePath{
+				Problems: currentFrame.params.problems,
+				Sequence: currentFrame.params.sequence,
+			})
+			continue
+		}
 
-		if stack[depth].target == len(upgrades) {
-			val := stack[len(stack)-1]
-			stack = stack[:len(stack)-1]
-
-			depth--
-			stack[depth].target++
-
-			min := UpgradePath{-1, []int{}}
-			for _, c := range val.candidates {
+		if currentFrame.branch == len(upgrades) {
+			min := UpgradePath{Problems: -1}
+			for _, c := range currentFrame.results {
 				if c.Problems < min.Problems || min.Problems < 0 {
 					min = c
-					min.Problems += stack[depth].problems
 				}
 			}
 
-			if depth == 0 {
+			min.Problems += currentFrame.params.problems
+			if len(stack)-1 == 0 {
 				return min
 			}
 
-			stack[depth].candidates = append(stack[depth].candidates, min)
+			iterativeReturn(min)
 			continue
 		}
 
-		if depth == max+1 {
-			problems := PlayMoney(stack[depth].state, moneyGoal)
-			stack[depth].candidates = append(
-				stack[depth].candidates,
-				UpgradePath{
-					Problems: problems,
-					Sequence: stack[depth].sequence,
-				},
-			)
-
-			stack[depth].target++
+		if len(stack)-1 == max {
+			problems := PlayMoney(currentFrame.params.state, moneyGoal)
+			iterativeReturn(UpgradePath{
+				Problems: currentFrame.params.problems + problems,
+				Sequence: currentFrame.params.sequence,
+			})
 			continue
 		}
 
-		lowerOption, problemsToUpgrade := PlayUpgrade(stack[depth].state, stack[depth].target)
-		stack = append(stack, PlayStack{
-			target:     upgrades[0],
-			problems:   problemsToUpgrade,
-			sequence:   append(stack[depth].sequence, stack[depth].target),
-			state:      lowerOption,
-			candidates: []UpgradePath{},
+		lowerOption, problemsToUpgrade := PlayUpgrade(currentFrame.params.state, currentFrame.branch)
+		iterativeCall(PlayStackParams{
+			sequence: append(currentFrame.params.sequence, currentFrame.branch),
+			state:    lowerOption,
+			problems: problemsToUpgrade,
 		})
-
-		depth++
 	}
 }
 

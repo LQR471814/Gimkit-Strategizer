@@ -2,6 +2,7 @@ package main
 
 import (
 	"log"
+	"math"
 	"net/http"
 	_ "net/http/pprof"
 	"time"
@@ -23,8 +24,8 @@ func main() {
 
 	options := DefaultPlayOptions()
 
-	log.Println(PlayIterative(options, 1000, testArray, 10))
-	log.Println(PlayRecurse(options, 1000, testArray, []int{}, 0, 10))
+	log.Println(PlayIterative(options, float32(math.Pow10(9)), testArray, 7))
+	// log.Println(PlayRecurse(options, 1000, testArray, []int{}, 0, 5))
 
 	// log.Println(PermutePlay(options, testArray, []int{}, 0, 2))
 
