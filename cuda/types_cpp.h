@@ -1,4 +1,3 @@
-#include <curand.h>
 #include <vector>
 
 using Money = double;
@@ -22,7 +21,7 @@ struct PlayState
 	struct UpgradeStats stats = {};
 	float setbackChance = 0;
 	Money money = 0;
-	curandState *randState = NULL;
+	void *randState = nullptr;
 };
 
 struct Permutation
@@ -55,23 +54,9 @@ struct RecurseContext
 	int upgradesSize;
 };
 
-struct PlayStackParameters
-{
-	PlayState state = {};
-	int problems = 0;
-};
-
-struct PlayStackFrame
-{
-	PlayStackParameters params = {};
-	int branch = 0;
-	int *results = NULL;
-};
-
 struct TRecurseResult
 {
 	struct PlayState init;
-	PlayStackFrame *stack;
 	int problems;
 	int *sequence;
 };
@@ -148,4 +133,4 @@ std::vector<UpgradeLevel> insuranceLevels = {
 	{99, 500000000},
 };
 
-struct UpgradeIndex index = {10};
+struct UpgradeIndex upgradeIndex = {10};

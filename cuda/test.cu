@@ -12,9 +12,22 @@ struct ScamResult {
 	curandState *randGen;
 };
 
+__forceinline__ __device__ int process(int *yo, int ack, int value) {
+	ack++;
+	yo[ack] = value;
+	return ack;
+}
+
 __global__ void thread(int *data, ScamResult *result) {
 	curand_init(1234, threadIdx.x, 0, result[threadIdx.x].randGen);
 	*result[threadIdx.x].result = curand_uniform(result[threadIdx.x].randGen);
+
+	int *yo = new int[10];
+	yo[0] = 1234;
+	printf("%d\n", yo[0]);
+
+	int ok = process(yo, 0, 4321);
+	printf("Ok %d ACKK %d\n", ok, yo[ok]);
 }
 
 int main(int argc, char** argv) {

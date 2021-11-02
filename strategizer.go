@@ -152,13 +152,9 @@ type PlayStackFrame struct {
 }
 
 func PlayIterative(init PlayState, moneyGoal float32, upgrades []int, max int) UpgradePath {
-	root := PlayStackFrame{
-		branch:  0,
-		params:  PlayStackParams{state: init},
-		results: []UpgradePath{},
-	}
-
+	root := PlayStackFrame{params: PlayStackParams{state: init}}
 	stack := []PlayStackFrame{root}
+
 	iterativeCall := func(params PlayStackParams) {
 		stack = append(stack, PlayStackFrame{
 			params: params,
