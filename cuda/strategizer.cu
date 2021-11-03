@@ -227,6 +227,10 @@ __host__ __device__ int playIterative(RecurseContext *c, PlayState play, PlaySta
 			(*c).upgrades[stack[depth].branch]
 		);
 
+		// if (depth == 1) {
+		// 	printf("Working\n");
+		// };
+
 		PlayState lowerState = {
 			incrementStat(
 				stack[depth].params.state.stats,
@@ -279,6 +283,14 @@ struct UpgradeIndex* initializeIndex() {
 	allocUpgradeLevels(&(*data).insurance, insuranceLevels);
 
 	return data;
+}
+
+void deallocateIndex(UpgradeIndex *index) {
+	cudaFree((*index).moneyPerQuestion);
+	cudaFree((*index).streakBonus);
+	cudaFree((*index).multiplier);
+	cudaFree((*index).insurance);
+	cudaFree(index);
 }
 
 int* initializeSequence(std::vector<int> init, int targetSize) {
@@ -455,11 +467,15 @@ int computeThreaded(std::vector<int> upgrades, Money moneyGoal, int syncDepth, i
 			};
 		};
 
+		cudaFree(results[i].init.randState);
 		cudaFree(results[i].sequence);
 		deallocateStack(results[i].stack, lowerDepth, upgrades.size());
 	};
 
 	cudaFree(results);
+	cudaFree(recurseUpgrades);
+	cudaFree(rc);
+	deallocateIndex(data);
 	return min;
 }
 

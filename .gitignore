@@ -1,4 +1,6 @@
 *.exe
+*.pdb
 *.exp
 *.lib
 /.vscode/
+*.ncu-rep
