@@ -190,6 +190,11 @@ __host__ __device__ int playIterative(RecurseContext *c, PlayState play, PlaySta
 	int depth = 0;
 	stack[depth].params.state = play;
 
+	//? To prevent crashes when the initial moneyValue is already larger than the goal
+	if (stack[depth].params.state.money >= (*c).moneyGoal) {
+		return 0;
+	};
+
 	while (true) {
 		if (stack[depth].params.state.money >= (*c).moneyGoal) {
 			depth = iterativeReturn(stack, depth, stack[depth].params.problems);
@@ -226,10 +231,6 @@ __host__ __device__ int playIterative(RecurseContext *c, PlayState play, PlaySta
 			(*c).data, stack[depth].params.state,
 			(*c).upgrades[stack[depth].branch]
 		);
-
-		// if (depth == 1) {
-		// 	printf("Working\n");
-		// };
 
 		PlayState lowerState = {
 			incrementStat(
@@ -481,10 +482,10 @@ int computeThreaded(std::vector<int> upgrades, Money moneyGoal, int syncDepth, i
 
 int main()
 {
-	int syncDepth = 4;
+	int syncDepth = 7;
 	int maxDepth = 10;
 	// Money moneyGoal = 1000000000000; //? First to a trillion
-	Money moneyGoal = 1000;
+	Money moneyGoal = 10000000;
 
 	std::vector<int> upgrades = {
 		MONEY_PER_QUESTION,
