@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <math.h>
 #include "types.h"
+#include "CLI11.hpp"
 
 __host__ __device__ void printPlayState(PlayState p) {
 	printf(
@@ -72,7 +73,7 @@ __host__ __device__ struct UpgradeLevel getUpgrade(UpgradeIndex *data, int id, i
 	return UpgradeLevel{};
 }
 
-__host__ __device__ struct GoalResult playGoal(UpgradeIndex *data, PlayState s, Money goal)
+__host__ __device__ struct GoalResult playGoal(UpgradeIndex *data, PlayState s, Money goal, int giveup)
 {
 	int problems = 0;
 	float streak = 0;
@@ -83,7 +84,7 @@ __host__ __device__ struct GoalResult playGoal(UpgradeIndex *data, PlayState s, 
 	UpgradeLevel mu = (*data).multiplier[s.stats.multiplier];
 	UpgradeLevel in = (*data).insurance[s.stats.insurance];
 
-	while (money < goal)
+	while (money < goal && (problems <= giveup || giveup < 0))
 	{
 	#ifdef __CUDA_ARCH__
 		float i = curand_uniform(s.randState);
@@ -106,7 +107,7 @@ __host__ __device__ struct GoalResult playGoal(UpgradeIndex *data, PlayState s, 
 	return GoalResult{problems, money};
 }
 
-__host__ __device__ struct GoalResult playUpgrade(UpgradeIndex *data, PlayState s, int target)
+__host__ __device__ struct GoalResult playUpgrade(UpgradeIndex *data, PlayState s, int target, int giveup)
 {
 	if (getStat(s.stats, target) > data->MAX_LEVEL)
 	{
@@ -114,7 +115,7 @@ __host__ __device__ struct GoalResult playUpgrade(UpgradeIndex *data, PlayState 
 	};
 
 	int goal = getUpgrade(data, target, getStat(s.stats, target) + 1).cost;
-	GoalResult result = playGoal(data, s, goal);
+	GoalResult result = playGoal(data, s, goal, giveup);
 	result.newMoney -= goal;
 
 	return result;
@@ -132,7 +133,7 @@ struct std::vector<Permutation> permuteRecursive(PermuteContext *c, PermuteState
 	for (int u : (*c).upgrades)
 	{
 		PlayState lowerState = r.play;
-		GoalResult res = playUpgrade((*c).data, r.play, u);
+		GoalResult res = playUpgrade((*c).data, r.play, u, -1);
 		lowerState.money = res.newMoney;
 		lowerState.stats = incrementStat(r.play.stats, u);
 
@@ -163,11 +164,7 @@ __host__ __device__ void printPlayStack(PlayStackFrame *stack, int depth, int re
 	printf(" -> Problems %d\n", stack[depth].params.problems);
 	printf(" -> ");
 	printPlayState(stack[depth].params.state);
-	printf(" -> Results (problems) ");
-	for (int i = 0; i < resultLength; i++) {
-		printf("%d ", stack[depth].results[i]);
-	};
-	printf("\n");
+	printf(" -> Current Min %d Target %d\n", stack[depth].currentMin, stack[depth].minTarget);
 }
 
 __forceinline__ __host__ __device__ int iterativeCall(PlayStackFrame *stack, PlayStackParameters params, int depth)
@@ -178,9 +175,14 @@ __forceinline__ __host__ __device__ int iterativeCall(PlayStackFrame *stack, Pla
 	return depth;
 }
 
-__forceinline__ __host__ __device__ int iterativeReturn(PlayStackFrame *stack, int depth, int value) {
+__forceinline__ __host__ __device__ int iterativeReturn(PlayStackFrame *stack, int depth, int value)
+{
 	depth--;
-	stack[depth].results[stack[depth].branch] = value;
+	if (value < stack[depth].currentMin || stack[depth].currentMin < 0) {
+		stack[depth].currentMin = value;
+		stack[depth].minTarget = stack[depth].branch;
+	};
+
 	stack[depth].branch++;
 	return depth;
 }
@@ -202,34 +204,26 @@ __host__ __device__ int playIterative(RecurseContext *c, PlayState play, PlaySta
 		};
 
 		if (stack[depth].branch == (*c).upgradesSize) {
-			int min = -1, minTarget = -1;
-
-			for (int i = 0; i < (*c).upgradesSize; i++) {
-				if (stack[depth].results[i] < min || min < 0) {
-					min = stack[depth].results[i];
-					minTarget = i;
-				};
-			};
-
-			result[startOffset + depth] = minTarget;
-			min += stack[depth].params.problems;
+			result[startOffset + depth] = stack[depth].minTarget;
+			stack[depth].currentMin += stack[depth].params.problems;
 			if (depth == 0) {
-				return min;
+				return stack[depth].currentMin;
 			};
 
-			depth = iterativeReturn(stack, depth, min);
+			depth = iterativeReturn(stack, depth, stack[depth].currentMin);
 			continue;
 		};
 
 		if (depth == (*c).max) {
-			GoalResult res = playGoal((*c).data, stack[depth].params.state, (*c).moneyGoal);
+			GoalResult res = playGoal((*c).data, stack[depth].params.state, (*c).moneyGoal, stack[depth].params.upperMinimum);
 			depth = iterativeReturn(stack, depth, stack[depth].params.problems + res.problems);
 			continue;
 		};
 
 		GoalResult res = playUpgrade(
 			(*c).data, stack[depth].params.state,
-			(*c).upgrades[stack[depth].branch]
+			(*c).upgrades[stack[depth].branch],
+			stack[depth].params.upperMinimum
 		);
 
 		PlayState lowerState = {
@@ -244,7 +238,8 @@ __host__ __device__ int playIterative(RecurseContext *c, PlayState play, PlaySta
 
 		depth = iterativeCall(stack, {
 			lowerState,
-			res.problems
+			res.problems,
+			stack[depth].currentMin
 		}, depth);
 	};
 }
@@ -322,21 +317,10 @@ PlayStackFrame* initializeStack(int lowerDepth, int upgradesSize) {
 	PlayStackFrame *stack;
 	cudaMallocManaged(&stack, sizeof(PlayStackFrame) * (lowerDepth+1));
 	for (int i = 0; i < lowerDepth+1; i++) {
-		int *results;
-		cudaMallocManaged(&results, sizeof(int) * upgradesSize);
-
 		stack[i] = {};
-		stack[i].results = results;
 	};
 
 	return stack;
-}
-
-void deallocateStack(PlayStackFrame* stack, int lowerDepth, int upgradesSize) {
-	for (int i = 0; i < lowerDepth+1; i++) {
-		cudaFree(stack[i].results);
-	};
-	cudaFree(stack);
 }
 
 __global__ void computeStrategy(RecurseContext *c, TRecurseResult *results, int rootSize, int depth)
@@ -380,8 +364,14 @@ int computeSync(std::vector<int> upgrades, Money moneyGoal, int syncDepth, int m
 		int *recurseResult = initializeSequence(p.sequence, maxDepth);
 		PlayStackFrame *stack = initializeStack(lowerDepth, upgrades.size());
 
+		printf("Problems: %d |", p.problems);
+		for (int i = 0; i < p.sequence.size(); i++) {
+			printf(" %d", p.sequence[i]);
+		};
+		printf("\n");
+
 		int problems = p.problems + playIterative(&rc, p.play, stack, recurseResult, syncDepth);
-		deallocateStack(stack, lowerDepth, upgrades.size());
+		cudaFree(stack);
 
 		printf("Problems: %d |", problems);
 		for (int i = 0; i < maxDepth; i++) {
@@ -443,14 +433,11 @@ int computeThreaded(std::vector<int> upgrades, Money moneyGoal, int syncDepth, i
 
 	printf("Memory Allocation Succeeded\n");
 
-	int threads = 256;
-	int threadBlocks = roots.size() / threads;
-	if (threadBlocks < 1) {
-		threadBlocks = 1;
-	};
+	int threadBlocks = ceil(float(roots.size()) / float(BLOCK_SIZE));
 
+	printf("Blocksize %d\n", BLOCK_SIZE);
 	printf("Roots %zd Blocks %d\n", roots.size(), threadBlocks);
-	computeStrategy<<<threadBlocks, threads>>>(
+	computeStrategy<<<threadBlocks, BLOCK_SIZE>>>(
 		rc, results, roots.size(), syncDepth
 	);
 
@@ -470,7 +457,7 @@ int computeThreaded(std::vector<int> upgrades, Money moneyGoal, int syncDepth, i
 
 		cudaFree(results[i].init.randState);
 		cudaFree(results[i].sequence);
-		deallocateStack(results[i].stack, lowerDepth, upgrades.size());
+		cudaFree(results[i].stack);
 	};
 
 	cudaFree(results);
@@ -480,12 +467,36 @@ int computeThreaded(std::vector<int> upgrades, Money moneyGoal, int syncDepth, i
 	return min;
 }
 
-int main()
+int main(int argc, char** argv)
 {
-	int syncDepth = 7;
-	int maxDepth = 10;
-	// Money moneyGoal = 1000000000000; //? First to a trillion
-	Money moneyGoal = 10000000;
+	CLI::App app{"A program that simulates many, many gimkit games"};
+
+	std::string goalStr = "1000000";
+	app.add_option(
+		"-g,--goal",
+		goalStr,
+		"Amount of money to reach before stopping"
+	);
+
+	std::string syncStr = "5";
+	app.add_option(
+		"-r,--roots",
+		syncStr,
+		"The depth to recurse synchronously to (threads spawned = <amount of upgrades>^depth) (overrides block count)"
+	);
+
+	std::string depthStr = "10";
+	app.add_option(
+		"-d,--depth",
+		depthStr,
+		"The amount of upgrades to be purchased"
+	);
+
+	CLI11_PARSE(app, argc, argv);
+
+	int syncDepth = std::stoi(syncStr);
+	int maxDepth = std::stoi(depthStr);
+	Money moneyGoal = std::stoi(goalStr);
 
 	std::vector<int> upgrades = {
 		MONEY_PER_QUESTION,
@@ -493,8 +504,8 @@ int main()
 		MULTIPLIER};
 
 	int *result = new int[maxDepth];
-	// int min = computeSync(upgrades, moneyGoal, syncDepth, maxDepth, result);
-	int min = computeThreaded(upgrades, moneyGoal, syncDepth, maxDepth, result);
+	int min = computeSync(upgrades, moneyGoal, syncDepth, maxDepth, result);
+	// int min = computeThreaded(upgrades, moneyGoal, syncDepth, maxDepth, result);
 
 	printf("========== RESULTS ==========\n");
 	printf("Minimum Problems: %d\n", min);

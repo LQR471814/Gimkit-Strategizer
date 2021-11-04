@@ -1,6 +1,8 @@
 #include <curand.h>
 #include <vector>
 
+const int BLOCK_SIZE = 256;
+
 using Money = double;
 
 struct GoalResult
@@ -59,13 +61,15 @@ struct PlayStackParameters
 {
 	PlayState state = {};
 	int problems = 0;
+	int upperMinimum = -1;
 };
 
 struct PlayStackFrame
 {
 	PlayStackParameters params = {};
 	int branch = 0;
-	int *results = NULL;
+	int currentMin = -1;
+	int minTarget = -1;
 };
 
 struct TRecurseResult
