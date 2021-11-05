@@ -359,25 +359,29 @@ int computeSync(std::vector<int> upgrades, Money moneyGoal, int syncDepth, int m
 	printf("Roots: %d\n", static_cast<int>(roots.size()));
 
 	int min = -1;
+	int rootOf = 0;
 	for (Permutation p : roots)
 	{
 		int *recurseResult = initializeSequence(p.sequence, maxDepth);
 		PlayStackFrame *stack = initializeStack(lowerDepth, upgrades.size());
 
-		printf("Problems: %d |", p.problems);
-		for (int i = 0; i < p.sequence.size(); i++) {
-			printf(" %d", p.sequence[i]);
-		};
-		printf("\n");
-
 		int problems = p.problems + playIterative(&rc, p.play, stack, recurseResult, syncDepth);
 		cudaFree(stack);
 
-		printf("Problems: %d |", problems);
+		printf("Root %d/%zd Problems: %d |", rootOf+1, roots.size(), problems);
 		for (int i = 0; i < maxDepth; i++) {
 			printf(" %d", recurseResult[i]);
 		};
-		printf("\n");
+
+		for (int i = 0; i < 10; i++) {
+			printf(" ");
+		};
+
+		if (rootOf != roots.size()-1) {
+			printf("\r");
+		} else {
+			printf("\n");
+		};
 
 		if (min < 0 || problems < min) {
 			min = problems;
@@ -387,6 +391,7 @@ int computeSync(std::vector<int> upgrades, Money moneyGoal, int syncDepth, int m
 		};
 
 		cudaFree(recurseResult);
+		rootOf++;
 	};
 
 	cudaFree(recurseUpgrades);
@@ -478,14 +483,14 @@ int main(int argc, char** argv)
 		"Amount of money to reach before stopping"
 	);
 
-	std::string syncStr = "5";
+	std::string syncStr = "8";
 	app.add_option(
 		"-r,--roots",
 		syncStr,
 		"The depth to recurse synchronously to (threads spawned = <amount of upgrades>^depth) (overrides block count)"
 	);
 
-	std::string depthStr = "10";
+	std::string depthStr = "15";
 	app.add_option(
 		"-d,--depth",
 		depthStr,
@@ -504,8 +509,8 @@ int main(int argc, char** argv)
 		MULTIPLIER};
 
 	int *result = new int[maxDepth];
-	int min = computeSync(upgrades, moneyGoal, syncDepth, maxDepth, result);
-	// int min = computeThreaded(upgrades, moneyGoal, syncDepth, maxDepth, result);
+	// int min = computeSync(upgrades, moneyGoal, syncDepth, maxDepth, result);
+	int min = computeThreaded(upgrades, moneyGoal, syncDepth, maxDepth, result);
 
 	printf("========== RESULTS ==========\n");
 	printf("Minimum Problems: %d\n", min);
