@@ -91,6 +91,8 @@ const int STREAK_BONUS = 1;
 const int MULTIPLIER = 2;
 const int INSURANCE = 3;
 
+const int MAX_LEVEL = 10;
+
 struct UpgradeIndex
 {
 	int MAX_LEVEL;
@@ -151,5 +153,3 @@ std::vector<UpgradeLevel> insuranceLevels = {
 	{95, 25000000},
 	{99, 500000000},
 };
-
-struct UpgradeIndex index = {10};

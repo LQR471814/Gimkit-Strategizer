@@ -109,7 +109,7 @@ __host__ __device__ struct GoalResult playGoal(UpgradeIndex *data, PlayState s, 
 
 __host__ __device__ struct GoalResult playUpgrade(UpgradeIndex *data, PlayState s, int target, int giveup)
 {
-	if (getStat(s.stats, target) > data->MAX_LEVEL)
+	if (getStat(s.stats, target) >= data->MAX_LEVEL)
 	{
 		return GoalResult{0, s.money};
 	};
@@ -271,7 +271,7 @@ std::vector<Permutation> getRoots(UpgradeIndex *data, std::vector<int> upgrades,
 struct UpgradeIndex* initializeIndex() {
 	UpgradeIndex *data;
 	cudaMallocManaged(&data, sizeof(UpgradeIndex));
-	data->MAX_LEVEL = index.MAX_LEVEL;
+	data->MAX_LEVEL = MAX_LEVEL;
 
 	allocUpgradeLevels(&(*data).moneyPerQuestion, moneyPerQuestionLevels);
 	allocUpgradeLevels(&(*data).streakBonus, streakBonusLevels);
@@ -442,6 +442,7 @@ int computeThreaded(std::vector<int> upgrades, Money moneyGoal, int syncDepth, i
 
 	printf("Blocksize %d\n", BLOCK_SIZE);
 	printf("Roots %zd Blocks %d\n", roots.size(), threadBlocks);
+
 	computeStrategy<<<threadBlocks, BLOCK_SIZE>>>(
 		rc, results, roots.size(), syncDepth
 	);
@@ -476,41 +477,44 @@ int main(int argc, char** argv)
 {
 	CLI::App app{"A program that simulates many, many gimkit games"};
 
-	std::string goalStr = "1000000";
-	app.add_option(
+	bool sync = false;
+	app.add_flag("-s,--sync", sync, "Calculate synchronously");
+
+	Money moneyGoal = 1000000;
+	app.add_option<Money, double>(
 		"-g,--goal",
-		goalStr,
+		moneyGoal,
 		"Amount of money to reach before stopping"
 	);
 
-	std::string syncStr = "8";
-	app.add_option(
+	unsigned int syncDepth = 2;
+	app.add_option<unsigned int>(
 		"-r,--roots",
-		syncStr,
+		syncDepth,
 		"The depth to recurse synchronously to (threads spawned = <amount of upgrades>^depth) (overrides block count)"
 	);
 
-	std::string depthStr = "15";
-	app.add_option(
+	unsigned int maxDepth = 5;
+	app.add_option<unsigned int>(
 		"-d,--depth",
-		depthStr,
+		maxDepth,
 		"The amount of upgrades to be purchased"
 	);
 
 	CLI11_PARSE(app, argc, argv);
-
-	int syncDepth = std::stoi(syncStr);
-	int maxDepth = std::stoi(depthStr);
-	Money moneyGoal = std::stoi(goalStr);
 
 	std::vector<int> upgrades = {
 		MONEY_PER_QUESTION,
 		STREAK_BONUS,
 		MULTIPLIER};
 
+	int min = 0;
 	int *result = new int[maxDepth];
-	// int min = computeSync(upgrades, moneyGoal, syncDepth, maxDepth, result);
-	int min = computeThreaded(upgrades, moneyGoal, syncDepth, maxDepth, result);
+	if (sync) {
+		min = computeSync(upgrades, moneyGoal, syncDepth, maxDepth, result);
+	} else {
+		min = computeThreaded(upgrades, moneyGoal, syncDepth, maxDepth, result);
+	};
 
 	printf("========== RESULTS ==========\n");
 	printf("Minimum Problems: %d\n", min);
