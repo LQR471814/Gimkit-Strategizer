@@ -1,9 +1,11 @@
 #include <cuda.h>
 #include <curand.h>
 #include <curand_kernel.h>
+
 #include <iostream>
 #include <stdlib.h>
 #include <math.h>
+
 #include "types.h"
 #include "CLI11.hpp"
 
@@ -323,7 +325,7 @@ PlayStackFrame* initializeStack(int lowerDepth, int upgradesSize) {
 	return stack;
 }
 
-__global__ void computeStrategy(RecurseContext *c, TRecurseResult *results, int rootSize, int depth)
+__global__ void computeStrategy(int *progress, RecurseContext *c, TRecurseResult *results, int rootSize, int depth)
 {
 	int index = threadIdx.x + blockIdx.x * blockDim.x;
 	if (index >= rootSize) {
@@ -338,6 +340,7 @@ __global__ void computeStrategy(RecurseContext *c, TRecurseResult *results, int 
 	);
 
 	results[index].problems = problems;
+	atomicAdd(progress, 1);
 }
 
 int computeSync(std::vector<int> upgrades, Money moneyGoal, int syncDepth, int maxDepth, int *result) {
@@ -398,6 +401,21 @@ int computeSync(std::vector<int> upgrades, Money moneyGoal, int syncDepth, int m
 	return min;
 }
 
+int* createHostProgress() {
+	int *progress;
+	cudaMallocHost(&progress, sizeof(int));
+	cudaHostRegister(progress, sizeof(int), 0);
+	*progress = 0;
+
+	return progress;
+}
+
+int* createPinnedProgress(int *hostPtr) {
+	int *pinnedPtr;
+	cudaHostGetDevicePointer(&pinnedPtr, hostPtr, 0);
+	return pinnedPtr;
+}
+
 int computeThreaded(std::vector<int> upgrades, Money moneyGoal, int syncDepth, int maxDepth, int *output) {
 	struct UpgradeIndex *data = initializeIndex();
 	std::vector<Permutation> roots = getRoots(data, upgrades, syncDepth);
@@ -443,11 +461,31 @@ int computeThreaded(std::vector<int> upgrades, Money moneyGoal, int syncDepth, i
 	printf("Blocksize %d\n", BLOCK_SIZE);
 	printf("Roots %zd Blocks %d\n", roots.size(), threadBlocks);
 
-	computeStrategy<<<threadBlocks, BLOCK_SIZE>>>(
-		rc, results, roots.size(), syncDepth
-	);
+	int *progress = createHostProgress();
+	int *d_progress = createPinnedProgress(progress);
 
-	cudaError_t err = cudaDeviceSynchronize();
+	cudaEvent_t start, stop;
+	cudaEventCreate(&start);
+	cudaEventCreate(&stop);
+
+	cudaEventRecord(start);
+	computeStrategy<<<threadBlocks, BLOCK_SIZE>>>(
+		d_progress, rc, results, roots.size(), syncDepth
+	);
+	cudaEventRecord(stop);
+
+	int hostProgress = 0;
+	do {
+		cudaEventQuery(stop);
+		int n = *progress;
+		if (n - hostProgress >= roots.size() * 0.1) {
+			hostProgress = n;
+			printf("Progress %d / %zd\n", hostProgress, roots.size());
+		};
+	} while (hostProgress < roots.size());
+
+	cudaError_t err = cudaEventSynchronize(stop);
+
 	printf("Compute Status %s\n", cudaGetErrorString(err));
 
 	int min = -1;
