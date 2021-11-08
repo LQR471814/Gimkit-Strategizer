@@ -474,19 +474,24 @@ int computeThreaded(std::vector<int> upgrades, Money moneyGoal, int syncDepth, i
 	);
 	cudaEventRecord(stop);
 
-	int hostProgress = 0;
+	int bufProgress = 0;
+	int trueProgress = 0;
 	do {
 		cudaEventQuery(stop);
-		int n = *progress;
-		if (n - hostProgress >= roots.size() * 0.1) {
-			hostProgress = n;
-			printf("Progress %d / %zd\n", hostProgress, roots.size());
+		trueProgress = *progress;
+		if (trueProgress - bufProgress >= roots.size() * 0.05) {
+			printf("Progress %d / %zd\n", bufProgress, roots.size());
+			bufProgress = trueProgress;
 		};
-	} while (hostProgress < roots.size());
+	} while (trueProgress < roots.size());
 
 	cudaError_t err = cudaEventSynchronize(stop);
-
 	printf("Compute Status %s\n", cudaGetErrorString(err));
+
+	float *elapsed = new float;
+	cudaEventElapsedTime(elapsed, start, stop);
+	printf("Completed in %fs\n", (*elapsed) / 1000);
+	delete elapsed;
 
 	int min = -1;
 	for (int i = 0; i < roots.size(); i++) {
