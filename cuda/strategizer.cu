@@ -202,25 +202,51 @@ __host__ __device__ int playIterative(RecurseContext *c, PlayState play, PlaySta
 	};
 
 	while (true) {
+		if (
+			(*c).currentMinimum &&
+			stack[depth].params.problems >= *(*c).currentMinimum &&
+			*(*c).currentMinimum > 0
+		) {
+			depth = iterativeReturn(
+				stack, depth,
+				stack[depth].params.problems + 9999
+			);
+			continue;
+		};
+
 		if (stack[depth].params.state.money >= (*c).moneyGoal) {
-			depth = iterativeReturn(stack, depth, stack[depth].params.problems);
+			depth = iterativeReturn(
+				stack, depth,
+				stack[depth].params.problems
+			);
 			continue;
 		};
 
 		if (stack[depth].branch == (*c).upgradesSize) {
 			result[startOffset + depth] = stack[depth].minTarget;
-			stack[depth].currentMin += stack[depth].params.problems;
 			if (depth == 0) {
 				return stack[depth].currentMin;
 			};
 
-			depth = iterativeReturn(stack, depth, stack[depth].currentMin);
+			depth = iterativeReturn(
+				stack, depth,
+				stack[depth].currentMin
+			);
 			continue;
 		};
 
 		if (depth == (*c).max) {
-			GoalResult res = playGoal((*c).data, stack[depth].params.state, (*c).moneyGoal, stack[depth].params.upperMinimum);
-			depth = iterativeReturn(stack, depth, stack[depth].params.problems + res.problems);
+			GoalResult res = playGoal(
+				(*c).data,
+				stack[depth].params.state,
+				(*c).moneyGoal,
+				stack[depth].params.upperMinimum
+			);
+
+			depth = iterativeReturn(
+				stack, depth,
+				stack[depth].params.problems + res.problems
+			);
 			continue;
 		};
 
@@ -242,7 +268,7 @@ __host__ __device__ int playIterative(RecurseContext *c, PlayState play, PlaySta
 
 		depth = iterativeCall(stack, {
 			lowerState,
-			res.problems,
+			stack[depth].params.problems + res.problems,
 			stack[depth].currentMin
 		}, depth);
 	};
@@ -341,7 +367,7 @@ __global__ void computeStrategy(int *progress, RecurseContext *c, TRecurseResult
 		results[index].sequence, depth
 	);
 
-	results[index].problems = problems;
+	results[index].problems += problems;
 	atomicAdd(progress, 1);
 }
 
@@ -424,6 +450,9 @@ int computeThreaded(std::vector<int> upgrades, Money moneyGoal, int syncDepth, i
 	int *recurseUpgrades = initializeUpgrades(upgrades);
 
 	int lowerDepth = maxDepth - syncDepth;
+	int *globalMin;
+	cudaMallocManaged(&globalMin, sizeof(int));
+	*globalMin = -1;
 
 	RecurseContext c = {
 		data,
@@ -431,6 +460,7 @@ int computeThreaded(std::vector<int> upgrades, Money moneyGoal, int syncDepth, i
 		moneyGoal,
 		recurseUpgrades,
 		static_cast<int>(upgrades.size()),
+		globalMin,
 	};
 
 	RecurseContext *rc = NULL;
@@ -497,10 +527,8 @@ int computeThreaded(std::vector<int> upgrades, Money moneyGoal, int syncDepth, i
 
 	int min = -1;
 	for (int i = 0; i < roots.size(); i++) {
-		int problems = roots[i].problems + results[i].problems;
-
-		if (min < 0 || problems < min) {
-			min = problems;
+		if (min < 0 || results[i].problems < min) {
+			min = results[i].problems;
 			for (int x = 0; x < maxDepth; x++) {
 				output[x] = results[i].sequence[x];
 			};

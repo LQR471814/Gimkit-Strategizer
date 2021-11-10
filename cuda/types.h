@@ -55,6 +55,8 @@ struct RecurseContext
 
 	int *upgrades;
 	int upgradesSize;
+
+	int *currentMinimum = NULL;
 };
 
 struct PlayStackParameters
