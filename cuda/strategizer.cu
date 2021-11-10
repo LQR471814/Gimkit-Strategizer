@@ -58,33 +58,16 @@ __host__ __device__ int getStat(UpgradeStats s, int id)
 	return -1;
 }
 
-__host__ __device__ struct UpgradeLevel getUpgrade(UpgradeIndex *data, int id, int level)
-{
-	switch (id)
-	{
-	case MONEY_PER_QUESTION:
-		return (*data).moneyPerQuestion[level];
-	case STREAK_BONUS:
-		return (*data).streakBonus[level];
-	case MULTIPLIER:
-		return (*data).multiplier[level];
-	case INSURANCE:
-		return (*data).insurance[level];
-	}
-
-	return UpgradeLevel{};
-}
-
 __host__ __device__ struct GoalResult playGoal(UpgradeIndex *data, PlayState s, Money goal, int giveup)
 {
 	int problems = 0;
 	float streak = 0;
 	Money money = s.money;
 
-	UpgradeLevel mq = (*data).moneyPerQuestion[s.stats.moneyPerQuestion];
-	UpgradeLevel sb = (*data).streakBonus[s.stats.streakBonus];
-	UpgradeLevel mu = (*data).multiplier[s.stats.multiplier];
-	UpgradeLevel in = (*data).insurance[s.stats.insurance];
+	UpgradeLevel mq = (*data).upgrades[MONEY_PER_QUESTION][s.stats.moneyPerQuestion];
+	UpgradeLevel sb = (*data).upgrades[STREAK_BONUS][s.stats.streakBonus];
+	UpgradeLevel mu = (*data).upgrades[MULTIPLIER][s.stats.multiplier];
+	UpgradeLevel in = (*data).upgrades[INSURANCE][s.stats.insurance];
 
 	while (money < goal && (problems <= giveup || giveup < 0))
 	{
@@ -113,12 +96,12 @@ __host__ __device__ struct GoalResult playGoal(UpgradeIndex *data, PlayState s, 
 
 __host__ __device__ struct GoalResult playUpgrade(UpgradeIndex *data, PlayState s, int target, int giveup)
 {
-	if (getStat(s.stats, target) >= data->MAX_LEVEL)
+	if (getStat(s.stats, target) >= data->maxLevel)
 	{
 		return GoalResult{0, s.money};
 	};
 
-	int goal = getUpgrade(data, target, getStat(s.stats, target) + 1).cost;
+	int goal = (*data).upgrades[target][getStat(s.stats, target) + 1].cost;
 	GoalResult result = playGoal(data, s, goal, giveup);
 	result.newMoney -= goal;
 
@@ -280,11 +263,13 @@ void assignVecToPointer(std::vector<int> vec, int *result, int size) {
 	};
 }
 
-void allocUpgradeLevels(UpgradeLevel **results, std::vector<UpgradeLevel> levels) {
-	cudaMallocManaged(results, sizeof(UpgradeLevel) * levels.size());
+UpgradeLevel* allocUpgradeLevels(std::vector<UpgradeLevel> levels) {
+	UpgradeLevel *result;
+	cudaMallocManaged(&result, sizeof(UpgradeLevel) * levels.size());
 	for (int i = 0; i < levels.size(); i++) {
-		(*results)[i] = levels[i];
+		result[i] = levels[i];
 	};
+	return result;
 }
 
 std::vector<Permutation> getRoots(UpgradeIndex *data, std::vector<int> upgrades, int syncDepth) {
@@ -301,21 +286,20 @@ std::vector<Permutation> getRoots(UpgradeIndex *data, std::vector<int> upgrades,
 struct UpgradeIndex* initializeIndex() {
 	UpgradeIndex *data;
 	cudaMallocManaged(&data, sizeof(UpgradeIndex));
-	data->MAX_LEVEL = MAX_LEVEL;
+	data->maxLevel = MAX_LEVEL;
 
-	allocUpgradeLevels(&(*data).moneyPerQuestion, moneyPerQuestionLevels);
-	allocUpgradeLevels(&(*data).streakBonus, streakBonusLevels);
-	allocUpgradeLevels(&(*data).multiplier, multiplierLevels);
-	allocUpgradeLevels(&(*data).insurance, insuranceLevels);
+	cudaMallocManaged(&data->upgrades, sizeof(UpgradeLevel*) * UPGRADE_COUNT);
+	(*data).upgrades[MONEY_PER_QUESTION] = allocUpgradeLevels(moneyPerQuestionLevels);
+	(*data).upgrades[STREAK_BONUS] = allocUpgradeLevels(streakBonusLevels);
+	(*data).upgrades[MULTIPLIER] = allocUpgradeLevels(multiplierLevels);
+	(*data).upgrades[INSURANCE] = allocUpgradeLevels(insuranceLevels);
 
 	return data;
 }
 
 void deallocateIndex(UpgradeIndex *index) {
-	cudaFree((*index).moneyPerQuestion);
-	cudaFree((*index).streakBonus);
-	cudaFree((*index).multiplier);
-	cudaFree((*index).insurance);
+	for (int i = 0; i < UPGRADE_COUNT; i++)
+		cudaFree((*index).upgrades[i]);
 	cudaFree(index);
 }
 
@@ -542,6 +526,7 @@ int computeThreaded(std::vector<int> upgrades, Money moneyGoal, int syncDepth, i
 	cudaFree(results);
 	cudaFree(recurseUpgrades);
 	cudaFree(rc);
+	cudaFree(globalMin);
 	deallocateIndex(data);
 	return min;
 }

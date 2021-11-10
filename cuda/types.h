@@ -11,6 +11,7 @@ struct GoalResult
 	Money newMoney = -1;
 };
 
+//? This doesn't use a pointer because that's kinda hard to implement
 struct UpgradeStats
 {
 	int moneyPerQuestion = 0;
@@ -93,15 +94,13 @@ const int STREAK_BONUS = 1;
 const int MULTIPLIER = 2;
 const int INSURANCE = 3;
 
+const int UPGRADE_COUNT = 4;
 const int MAX_LEVEL = 10;
 
 struct UpgradeIndex
 {
-	int MAX_LEVEL;
-	UpgradeLevel *moneyPerQuestion;
-	UpgradeLevel *streakBonus;
-	UpgradeLevel *multiplier;
-	UpgradeLevel *insurance;
+	int maxLevel;
+	UpgradeLevel **upgrades;
 };
 
 std::vector<UpgradeLevel> moneyPerQuestionLevels = {
