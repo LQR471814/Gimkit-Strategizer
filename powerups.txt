@@ -7,3 +7,11 @@ mega bonus - earnings are multiplied by 5x for one question
 minute to win it - earnings multiplied by 2x for the next minute
 
 quadgrader - Increase all upgrade levels by 1
+
+powerup cost calculation:
+powerups cost is calculated through
+5 * round(
+	(
+		(base amount) + (% of your balance)
+	) / 5
+)
