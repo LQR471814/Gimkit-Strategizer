@@ -100,7 +100,9 @@ __host__ __device__ struct GoalResult playGoal(UpgradeIndex *data, PlayState s, 
 		else
 		{
 			money += (Money) mu.value * (mq.value + sb.value * streak);
-			streak++;
+			//? Apparantly the largest answer streak you can get is 100
+			if (streak < 100)
+				streak++;
 		}
 
 		problems++;
