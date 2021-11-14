@@ -1,93 +1,9 @@
 #include <curand.h>
 #include <vector>
 
+typedef double Money;
+
 const int BLOCK_SIZE = 256;
-
-using Money = double;
-
-struct GoalResult
-{
-	int problems = -1;
-	Money newMoney = -1;
-};
-
-//? This doesn't use a pointer because that's kinda hard to implement
-struct UpgradeStats
-{
-	int moneyPerQuestion = 0;
-	int streakBonus = 0;
-	int multiplier = 0;
-	int insurance = 0;
-};
-
-struct PlayState
-{
-	struct UpgradeStats stats = {};
-	float setbackChance = 0;
-	Money money = 0;
-	curandState *randState = NULL;
-};
-
-struct Permutation
-{
-	int problems;
-	std::vector<int> sequence;
-	struct PlayState play;
-};
-
-struct PermuteContext
-{
-	struct UpgradeIndex *data;
-	std::vector<int> upgrades;
-	int max;
-};
-
-struct PermuteState
-{
-	struct PlayState play;
-	std::vector<int> sequence;
-};
-
-struct RecurseContext
-{
-	struct UpgradeIndex *data;
-	int max;
-	Money moneyGoal;
-
-	int *upgrades;
-	int upgradesSize;
-
-	int *currentMinimum = NULL;
-};
-
-struct PlayStackParameters
-{
-	PlayState state = {};
-	int problems = 0;
-	int upperMinimum = -1;
-};
-
-struct PlayStackFrame
-{
-	PlayStackParameters params = {};
-	int branch = 0;
-	int currentMin = -1;
-	int minTarget = -1;
-};
-
-struct TRecurseResult
-{
-	struct PlayState init;
-	PlayStackFrame *stack;
-	int problems;
-	int *sequence;
-};
-
-struct UpgradeLevel
-{
-	float value;
-	int cost;
-};
 
 const int MONEY_PER_QUESTION = 0;
 const int STREAK_BONUS = 1;
@@ -97,10 +13,10 @@ const int INSURANCE = 3;
 const int UPGRADE_COUNT = 4;
 const int MAX_LEVEL = 10;
 
-struct UpgradeIndex
+struct UpgradeLevel
 {
-	int maxLevel;
-	UpgradeLevel **upgrades;
+	float value;
+	int cost;
 };
 
 std::vector<UpgradeLevel> moneyPerQuestionLevels = {
@@ -153,4 +69,82 @@ std::vector<UpgradeLevel> insuranceLevels = {
 	{90, 5000000},
 	{95, 25000000},
 	{99, 500000000},
+};
+
+//? This doesn't use a pointer because that's kinda hard to implement
+struct UpgradeStats
+{
+	int moneyPerQuestion = 0;
+	int streakBonus = 0;
+	int multiplier = 0;
+	int insurance = 0;
+};
+
+struct GoalResult
+{
+	int problems = -1;
+	Money newMoney = -1;
+};
+
+struct PlayState
+{
+	struct UpgradeStats stats = {};
+	float setbackChance = 0;
+	Money money = 0;
+	curandState *randState = NULL;
+};
+
+struct Permutation
+{
+	int problems;
+	std::vector<int> sequence;
+	struct PlayState play;
+};
+
+struct PermuteContext
+{
+	UpgradeLevel **data;
+	std::vector<int> upgrades;
+	int max;
+};
+
+struct PermuteState
+{
+	struct PlayState play;
+	std::vector<int> sequence;
+};
+
+struct RecurseContext
+{
+	UpgradeLevel **data;
+	int max;
+	Money moneyGoal;
+
+	int *upgrades;
+	int upgradesSize;
+
+	int *currentMinimum = NULL;
+};
+
+struct PlayStackParameters
+{
+	PlayState state = {};
+	int problems = 0;
+	int upperMinimum = -1;
+};
+
+struct PlayStackFrame
+{
+	PlayStackParameters params = {};
+	int branch = 0;
+	int currentMin = -1;
+	int minTarget = -1;
+};
+
+struct TRecurseResult
+{
+	struct PlayState init;
+	PlayStackFrame *stack;
+	int problems;
+	int *sequence;
 };

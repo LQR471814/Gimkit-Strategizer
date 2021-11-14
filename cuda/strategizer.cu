@@ -12,7 +12,7 @@
 __host__ __device__ void printPlayState(PlayState p) {
 	printf(
 		"$%f Stats %d %d %d %d\n",
-		(Money)p.money,
+		p.money,
 		p.stats.moneyPerQuestion,
 		p.stats.streakBonus,
 		p.stats.multiplier,
@@ -58,16 +58,16 @@ __host__ __device__ int getStat(UpgradeStats s, int id)
 	return -1;
 }
 
-__host__ __device__ struct GoalResult playGoal(UpgradeIndex *data, PlayState s, Money goal, int giveup)
+__host__ __device__ struct GoalResult playGoal(UpgradeLevel **data, PlayState s, Money goal, int giveup)
 {
 	int problems = 0;
 	float streak = 0;
 	Money money = s.money;
 
-	UpgradeLevel mq = (*data).upgrades[MONEY_PER_QUESTION][s.stats.moneyPerQuestion];
-	UpgradeLevel sb = (*data).upgrades[STREAK_BONUS][s.stats.streakBonus];
-	UpgradeLevel mu = (*data).upgrades[MULTIPLIER][s.stats.multiplier];
-	UpgradeLevel in = (*data).upgrades[INSURANCE][s.stats.insurance];
+	UpgradeLevel mq = data[MONEY_PER_QUESTION][s.stats.moneyPerQuestion];
+	UpgradeLevel sb = data[STREAK_BONUS][s.stats.streakBonus];
+	UpgradeLevel mu = data[MULTIPLIER][s.stats.multiplier];
+	UpgradeLevel in = data[INSURANCE][s.stats.insurance];
 
 	while (money < goal && (problems <= giveup || giveup < 0))
 	{
@@ -94,14 +94,14 @@ __host__ __device__ struct GoalResult playGoal(UpgradeIndex *data, PlayState s, 
 	return GoalResult{problems, money};
 }
 
-__host__ __device__ struct GoalResult playUpgrade(UpgradeIndex *data, PlayState s, int target, int giveup)
+__host__ __device__ struct GoalResult playUpgrade(UpgradeLevel **data, PlayState s, int target, int giveup)
 {
-	if (getStat(s.stats, target) >= data->maxLevel)
+	if (getStat(s.stats, target) >= MAX_LEVEL)
 	{
 		return GoalResult{0, s.money};
 	};
 
-	int goal = (*data).upgrades[target][getStat(s.stats, target) + 1].cost;
+	int goal = data[target][getStat(s.stats, target) + 1].cost;
 	GoalResult result = playGoal(data, s, goal, giveup);
 	result.newMoney -= goal;
 
@@ -272,7 +272,7 @@ UpgradeLevel* allocUpgradeLevels(std::vector<UpgradeLevel> levels) {
 	return result;
 }
 
-std::vector<Permutation> getRoots(UpgradeIndex *data, std::vector<int> upgrades, int syncDepth) {
+std::vector<Permutation> getRoots(UpgradeLevel **data, std::vector<int> upgrades, int syncDepth) {
 	PermuteContext c = {data, upgrades, syncDepth};
 	PermuteState r = {
 		UpgradeStats{0, 0, 0, 0}, // play
@@ -283,24 +283,22 @@ std::vector<Permutation> getRoots(UpgradeIndex *data, std::vector<int> upgrades,
 	return permuteRecursive(&c, r, 0);
 }
 
-struct UpgradeIndex* initializeIndex() {
-	UpgradeIndex *data;
-	cudaMallocManaged(&data, sizeof(UpgradeIndex));
-	data->maxLevel = MAX_LEVEL;
+struct UpgradeLevel** initializeIndex() {
+	UpgradeLevel **data;
+	cudaMallocManaged(&data, sizeof(UpgradeLevel) * UPGRADE_COUNT);
 
-	cudaMallocManaged(&data->upgrades, sizeof(UpgradeLevel*) * UPGRADE_COUNT);
-	(*data).upgrades[MONEY_PER_QUESTION] = allocUpgradeLevels(moneyPerQuestionLevels);
-	(*data).upgrades[STREAK_BONUS] = allocUpgradeLevels(streakBonusLevels);
-	(*data).upgrades[MULTIPLIER] = allocUpgradeLevels(multiplierLevels);
-	(*data).upgrades[INSURANCE] = allocUpgradeLevels(insuranceLevels);
+	data[MONEY_PER_QUESTION] = allocUpgradeLevels(moneyPerQuestionLevels);
+	data[STREAK_BONUS] = allocUpgradeLevels(streakBonusLevels);
+	data[MULTIPLIER] = allocUpgradeLevels(multiplierLevels);
+	data[INSURANCE] = allocUpgradeLevels(insuranceLevels);
 
 	return data;
 }
 
-void deallocateIndex(UpgradeIndex *index) {
+void deallocateIndex(UpgradeLevel **data) {
 	for (int i = 0; i < UPGRADE_COUNT; i++)
-		cudaFree((*index).upgrades[i]);
-	cudaFree(index);
+		cudaFree(data[i]);
+	cudaFree(data);
 }
 
 int* initializeSequence(std::vector<int> init, int targetSize) {
@@ -356,7 +354,7 @@ __global__ void computeStrategy(int *progress, RecurseContext *c, TRecurseResult
 }
 
 int computeSync(std::vector<int> upgrades, Money moneyGoal, int syncDepth, int maxDepth, int *result) {
-	struct UpgradeIndex *data = initializeIndex();
+	struct UpgradeLevel **data = initializeIndex();
 
 	std::vector<Permutation> roots = getRoots(data, upgrades, syncDepth);
 	int *recurseUpgrades = initializeUpgrades(upgrades);
@@ -429,7 +427,7 @@ int* createPinnedProgress(int *hostPtr) {
 }
 
 int computeThreaded(std::vector<int> upgrades, Money moneyGoal, int syncDepth, int maxDepth, int *output) {
-	struct UpgradeIndex *data = initializeIndex();
+	struct UpgradeLevel **data = initializeIndex();
 	std::vector<Permutation> roots = getRoots(data, upgrades, syncDepth);
 	int *recurseUpgrades = initializeUpgrades(upgrades);
 
