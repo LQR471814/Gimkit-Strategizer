@@ -385,6 +385,12 @@ int computeSync(std::vector<int> upgrades, Money moneyGoal, int *result, Compute
 		cudaFree(stack);
 
 		if (opts.verboseLog) {
+			if (rootOf != roots.size()-1) {
+				printf("\r");
+			} else {
+				printf("\n");
+			};
+
 			if (rootOf > lastLogpoint * (opts.loggingFidelity * roots.size())) {
 				printf("Root %d/%zd Problems: %d |", rootOf+1, roots.size(), problems);
 				for (int i = 0; i < opts.maxDepth; i++) {
@@ -395,12 +401,6 @@ int computeSync(std::vector<int> upgrades, Money moneyGoal, int *result, Compute
 				};
 
 				lastLogpoint++;
-			};
-
-			if (rootOf != roots.size()-1) {
-				printf("\r");
-			} else {
-				printf("\n");
 			};
 		};
 
