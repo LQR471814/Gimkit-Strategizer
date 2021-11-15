@@ -477,6 +477,13 @@ int computeThreaded(std::vector<int> upgrades, Money moneyGoal, int syncDepth, i
 	printf("Blocksize %d\n", BLOCK_SIZE);
 	printf("Roots %zd Blocks %d\n", roots.size(), threadBlocks);
 
+	cudaDeviceProp *props;
+	cudaMallocManaged(&props, sizeof(cudaDeviceProp));
+	cudaError_t error = cudaGetDeviceProperties(props, 0);
+	if (error != cudaSuccess)
+		printf("GPU version error %s\n", cudaGetErrorString(error));
+	printf("GPU Compute Capability %d.%d\n\n", props->major, props->minor);
+
 	int *progress = createHostProgress();
 	int *d_progress = createPinnedProgress(progress);
 
@@ -502,7 +509,7 @@ int computeThreaded(std::vector<int> upgrades, Money moneyGoal, int syncDepth, i
 	} while (trueProgress < roots.size());
 
 	cudaError_t err = cudaEventSynchronize(stop);
-	printf("Compute Status %s\n", cudaGetErrorString(err));
+	printf("\nCompute Status %s\n", cudaGetErrorString(err));
 
 	float *elapsed = new float;
 	cudaEventElapsedTime(elapsed, start, stop);
