@@ -353,7 +353,7 @@ __global__ void computeStrategy(int *progress, RecurseContext *c, TRecurseResult
 	atomicAdd(progress, 1);
 }
 
-int computeSync(std::vector<int> upgrades, Money moneyGoal, int syncDepth, int maxDepth, int *result) {
+int computeSync(std::vector<int> upgrades, Money moneyGoal, int syncDepth, int maxDepth, int *result, float logFidelity) {
 	struct UpgradeLevel **data = initializeIndex();
 
 	std::vector<Permutation> roots = getRoots(data, upgrades, syncDepth);
@@ -373,6 +373,7 @@ int computeSync(std::vector<int> upgrades, Money moneyGoal, int syncDepth, int m
 
 	int min = -1;
 	int rootOf = 0;
+	int lastLogpoint = 0;
 	for (Permutation p : roots)
 	{
 		int *recurseResult = initializeSequence(p.sequence, maxDepth);
@@ -381,13 +382,14 @@ int computeSync(std::vector<int> upgrades, Money moneyGoal, int syncDepth, int m
 		int problems = p.problems + playIterative(&rc, p.play, stack, recurseResult, syncDepth);
 		cudaFree(stack);
 
-		printf("Root %d/%zd Problems: %d |", rootOf+1, roots.size(), problems);
-		for (int i = 0; i < maxDepth; i++) {
-			printf(" %d", recurseResult[i]);
-		};
-
-		for (int i = 0; i < 10; i++) {
-			printf(" ");
+		if (rootOf > lastLogpoint * (logFidelity * roots.size())) {
+			printf("Root %d/%zd Problems: %d |", rootOf+1, roots.size(), problems);
+			for (int i = 0; i < maxDepth; i++) {
+				printf(" %d", recurseResult[i]);
+			};
+			for (int i = 0; i < 10; i++) {
+				printf(" ");
+			};
 		};
 
 		if (rootOf != roots.size()-1) {
@@ -426,7 +428,7 @@ int* createPinnedProgress(int *hostPtr) {
 	return pinnedPtr;
 }
 
-int computeThreaded(std::vector<int> upgrades, Money moneyGoal, int syncDepth, int maxDepth, int *output) {
+int computeThreaded(std::vector<int> upgrades, Money moneyGoal, int syncDepth, int maxDepth, int *output, float loggingFidelity) {
 	struct UpgradeLevel **data = initializeIndex();
 	std::vector<Permutation> roots = getRoots(data, upgrades, syncDepth);
 	int *recurseUpgrades = initializeUpgrades(upgrades);
@@ -493,7 +495,7 @@ int computeThreaded(std::vector<int> upgrades, Money moneyGoal, int syncDepth, i
 	do {
 		cudaEventQuery(stop);
 		trueProgress = *progress;
-		if (trueProgress - bufProgress >= roots.size() * 0.05) {
+		if (trueProgress - bufProgress >= roots.size() * loggingFidelity) {
 			printf("Progress %d / %zd\n", bufProgress, roots.size());
 			bufProgress = trueProgress;
 		};
@@ -557,19 +559,35 @@ int main(int argc, char** argv)
 		"The amount of upgrades to be purchased"
 	);
 
+	float loggingFidelity = 0.05;
+	app.add_option<float>(
+		"-l,--logging-fidelity",
+		loggingFidelity,
+		"The fidelity in which progress is reported (smaller makes progress update more frequently)"
+	);
+
 	CLI11_PARSE(app, argc, argv);
 
 	std::vector<int> upgrades = {
 		MONEY_PER_QUESTION,
 		STREAK_BONUS,
-		MULTIPLIER};
+		MULTIPLIER,
+	};
 
 	int min = 0;
 	int *result = new int[maxDepth];
 	if (sync) {
-		min = computeSync(upgrades, moneyGoal, syncDepth, maxDepth, result);
+		min = computeSync(
+			upgrades, moneyGoal,
+			syncDepth, maxDepth,
+			result, loggingFidelity
+		);
 	} else {
-		min = computeThreaded(upgrades, moneyGoal, syncDepth, maxDepth, result);
+		min = computeThreaded(
+			upgrades, moneyGoal,
+			syncDepth, maxDepth,
+			result, loggingFidelity
+		);
 	};
 
 	printf("========== RESULTS ==========\n");
