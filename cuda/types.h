@@ -148,3 +148,11 @@ struct TRecurseResult
 	int problems;
 	int *sequence;
 };
+
+struct ComputeOptions {
+	unsigned int syncDepth;
+	unsigned int maxDepth;
+
+	float loggingFidelity;
+	bool verboseLog;
+};

@@ -350,15 +350,17 @@ __global__ void computeStrategy(int *progress, RecurseContext *c, TRecurseResult
 	);
 
 	results[index].problems += problems;
-	atomicAdd(progress, 1);
+
+	if (progress)
+		atomicAdd(progress, 1);
 }
 
-int computeSync(std::vector<int> upgrades, Money moneyGoal, int syncDepth, int maxDepth, int *result, float logFidelity) {
+int computeSync(std::vector<int> upgrades, Money moneyGoal, int *result, ComputeOptions opts) {
 	struct UpgradeLevel **data = initializeIndex();
 
-	std::vector<Permutation> roots = getRoots(data, upgrades, syncDepth);
+	std::vector<Permutation> roots = getRoots(data, upgrades, opts.syncDepth);
 	int *recurseUpgrades = initializeUpgrades(upgrades);
-	int lowerDepth = maxDepth - syncDepth;
+	int lowerDepth = opts.maxDepth - opts.syncDepth;
 
 	RecurseContext rc = {
 		data,
@@ -376,31 +378,33 @@ int computeSync(std::vector<int> upgrades, Money moneyGoal, int syncDepth, int m
 	int lastLogpoint = 0;
 	for (Permutation p : roots)
 	{
-		int *recurseResult = initializeSequence(p.sequence, maxDepth);
+		int *recurseResult = initializeSequence(p.sequence, opts.maxDepth);
 		PlayStackFrame *stack = initializeStack(lowerDepth, upgrades.size());
 
-		int problems = p.problems + playIterative(&rc, p.play, stack, recurseResult, syncDepth);
+		int problems = p.problems + playIterative(&rc, p.play, stack, recurseResult, opts.syncDepth);
 		cudaFree(stack);
 
-		if (rootOf > lastLogpoint * (logFidelity * roots.size())) {
-			printf("Root %d/%zd Problems: %d |", rootOf+1, roots.size(), problems);
-			for (int i = 0; i < maxDepth; i++) {
-				printf(" %d", recurseResult[i]);
+		if (opts.verboseLog) {
+			if (rootOf > lastLogpoint * (opts.loggingFidelity * roots.size())) {
+				printf("Root %d/%zd Problems: %d |", rootOf+1, roots.size(), problems);
+				for (int i = 0; i < opts.maxDepth; i++) {
+					printf(" %d", recurseResult[i]);
+				};
+				for (int i = 0; i < 10; i++) {
+					printf(" ");
+				};
 			};
-			for (int i = 0; i < 10; i++) {
-				printf(" ");
-			};
-		};
 
-		if (rootOf != roots.size()-1) {
-			printf("\r");
-		} else {
-			printf("\n");
+			if (rootOf != roots.size()-1) {
+				printf("\r");
+			} else {
+				printf("\n");
+			};
 		};
 
 		if (min < 0 || problems < min) {
 			min = problems;
-			for (int i = 0; i < maxDepth; i++) {
+			for (int i = 0; i < opts.maxDepth; i++) {
 				result[i] = recurseResult[i];
 			};
 		};
@@ -428,12 +432,12 @@ int* createPinnedProgress(int *hostPtr) {
 	return pinnedPtr;
 }
 
-int computeThreaded(std::vector<int> upgrades, Money moneyGoal, int syncDepth, int maxDepth, int *output, float loggingFidelity) {
+int computeThreaded(std::vector<int> upgrades, Money moneyGoal, int *output, ComputeOptions opts) {
 	struct UpgradeLevel **data = initializeIndex();
-	std::vector<Permutation> roots = getRoots(data, upgrades, syncDepth);
+	std::vector<Permutation> roots = getRoots(data, upgrades, opts.syncDepth);
 	int *recurseUpgrades = initializeUpgrades(upgrades);
 
-	int lowerDepth = maxDepth - syncDepth;
+	int lowerDepth = opts.maxDepth - opts.syncDepth;
 	int *globalMin;
 	cudaMallocManaged(&globalMin, sizeof(int));
 	*globalMin = -1;
@@ -455,7 +459,7 @@ int computeThreaded(std::vector<int> upgrades, Money moneyGoal, int syncDepth, i
 	cudaMallocManaged(&results, sizeof(TRecurseResult) * roots.size());
 
 	for (int i = 0; i < roots.size(); i++) {
-		int *sequence = initializeSequence(roots[i].sequence, maxDepth);
+		int *sequence = initializeSequence(roots[i].sequence, opts.maxDepth);
 		PlayStackFrame *stack = initializeStack(lowerDepth, upgrades.size());
 
 		curandState *gen = NULL;
@@ -477,39 +481,50 @@ int computeThreaded(std::vector<int> upgrades, Money moneyGoal, int syncDepth, i
 	printf("Blocksize %d\n", BLOCK_SIZE);
 	printf("Roots %zd Blocks %d\n", roots.size(), threadBlocks);
 
-	cudaDeviceProp *props;
-	cudaMallocManaged(&props, sizeof(cudaDeviceProp));
-	cudaError_t error = cudaGetDeviceProperties(props, 0);
-	if (error != cudaSuccess)
-		printf("GPU version error %s\n", cudaGetErrorString(error));
-	printf("GPU Compute Capability %d.%d\n\n", props->major, props->minor);
-
-	int *progress = createHostProgress();
-	int *d_progress = createPinnedProgress(progress);
-
+	int *progress = NULL, *d_progress = NULL;
 	cudaEvent_t start, stop;
-	cudaEventCreate(&start);
-	cudaEventCreate(&stop);
 
-	cudaEventRecord(start);
+	if (opts.verboseLog) {
+		cudaDeviceProp *props;
+		cudaMallocManaged(&props, sizeof(cudaDeviceProp));
+		cudaError_t error = cudaGetDeviceProperties(props, 0);
+		if (error != cudaSuccess)
+			printf("GPU version error %s\n", cudaGetErrorString(error));
+		printf("GPU Compute Capability %d.%d\n\n", props->major, props->minor);
+
+		progress = createHostProgress();
+		d_progress = createPinnedProgress(progress);
+
+		cudaEventCreate(&start);
+		cudaEventCreate(&stop);
+
+		cudaEventRecord(start);
+	};
+
 	computeStrategy<<<threadBlocks, BLOCK_SIZE>>>(
-		d_progress, rc, results, roots.size(), syncDepth
+		d_progress, rc, results, roots.size(), opts.syncDepth
 	);
-	cudaEventRecord(stop);
 
-	int bufProgress = 0;
-	int trueProgress = 0;
-	do {
-		cudaEventQuery(stop);
-		trueProgress = *progress;
-		if (trueProgress - bufProgress >= roots.size() * loggingFidelity) {
-			printf("Progress %d / %zd\n", bufProgress, roots.size());
-			bufProgress = trueProgress;
-		};
-	} while (trueProgress < roots.size());
+	if (opts.verboseLog) {
+		cudaEventRecord(stop);
 
-	cudaError_t err = cudaEventSynchronize(stop);
-	printf("\nCompute Status %s\n", cudaGetErrorString(err));
+		int bufProgress = 0;
+		int trueProgress = 0;
+		do {
+				cudaEventQuery(stop);
+
+			trueProgress = *progress;
+			if (trueProgress - bufProgress >= roots.size() * opts.loggingFidelity) {
+				printf("Progress %d / %zd\n", bufProgress, roots.size());
+				bufProgress = trueProgress;
+			};
+		} while (trueProgress < roots.size());
+
+		cudaEventSynchronize(stop);
+	} else
+		cudaDeviceSynchronize();
+
+	printf("\nCompute Status %s\n", cudaGetErrorString(cudaGetLastError()));
 
 	float *elapsed = new float;
 	cudaEventElapsedTime(elapsed, start, stop);
@@ -520,7 +535,7 @@ int computeThreaded(std::vector<int> upgrades, Money moneyGoal, int syncDepth, i
 	for (int i = 0; i < roots.size(); i++) {
 		if (min < 0 || results[i].problems < min) {
 			min = results[i].problems;
-			for (int x = 0; x < maxDepth; x++) {
+			for (int x = 0; x < opts.maxDepth; x++) {
 				output[x] = results[i].sequence[x];
 			};
 		};
@@ -573,6 +588,13 @@ int main(int argc, char** argv)
 		"The fidelity in which progress is reported (smaller makes progress update more frequently)"
 	);
 
+	bool verbose = true;
+	app.add_option<bool>(
+		"-v,--verbose-log",
+		verbose,
+		"Run program in verbose mode"
+	);
+
 	CLI11_PARSE(app, argc, argv);
 
 	std::vector<int> upgrades = {
@@ -581,19 +603,24 @@ int main(int argc, char** argv)
 		MULTIPLIER,
 	};
 
+	ComputeOptions opts = {
+		syncDepth,
+		maxDepth,
+		loggingFidelity,
+		verbose,
+	};
+
 	int min = 0;
 	int *result = new int[maxDepth];
 	if (sync) {
 		min = computeSync(
 			upgrades, moneyGoal,
-			syncDepth, maxDepth,
-			result, loggingFidelity
+			result, opts
 		);
 	} else {
 		min = computeThreaded(
 			upgrades, moneyGoal,
-			syncDepth, maxDepth,
-			result, loggingFidelity
+			result, opts
 		);
 	};
 
