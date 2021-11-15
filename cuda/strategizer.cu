@@ -557,6 +557,9 @@ int main(int argc, char** argv)
 {
 	CLI::App app{"A program that simulates many, many gimkit games"};
 
+	bool consise = false;
+	app.add_flag("-c,--consise", consise, "Run program without verbose logging");
+
 	bool sync = false;
 	app.add_flag("-s,--sync", sync, "Calculate synchronously");
 
@@ -588,13 +591,6 @@ int main(int argc, char** argv)
 		"The fidelity in which progress is reported (smaller makes progress update more frequently)"
 	);
 
-	bool verbose = true;
-	app.add_option<bool>(
-		"-v,--verbose-log",
-		verbose,
-		"Run program in verbose mode"
-	);
-
 	CLI11_PARSE(app, argc, argv);
 
 	std::vector<int> upgrades = {
@@ -607,7 +603,7 @@ int main(int argc, char** argv)
 		syncDepth,
 		maxDepth,
 		loggingFidelity,
-		verbose,
+		!consise,
 	};
 
 	int min = 0;
