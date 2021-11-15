@@ -393,6 +393,8 @@ int computeSync(std::vector<int> upgrades, Money moneyGoal, int *result, Compute
 				for (int i = 0; i < 10; i++) {
 					printf(" ");
 				};
+
+				lastLogpoint++;
 			};
 
 			if (rootOf != roots.size()-1) {
