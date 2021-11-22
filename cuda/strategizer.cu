@@ -89,7 +89,7 @@ __host__ __device__ struct GoalResult playGoal(UpgradeLevel **data, PlayState s,
 		}
 
 		problems++;
-	};
+	}
 
 	return GoalResult{problems, money};
 }
@@ -109,7 +109,7 @@ struct std::vector<Permutation> permuteRecursive(PermuteContext *c, PermuteState
 	{
 		Permutation p = Permutation{0, r.sequence, r.play};
 		return std::vector<Permutation>{p};
-	};
+	}
 
 	std::vector<Permutation> permutes;
 	for (int u : (*c).upgrades)
@@ -163,7 +163,7 @@ __forceinline__ __host__ __device__ int iterativeReturn(PlayStackFrame *stack, i
 	if (value < stack[depth].currentMin || stack[depth].currentMin < 0) {
 		stack[depth].currentMin = value;
 		stack[depth].minTarget = stack[depth].branch;
-	};
+	}
 
 	stack[depth].branch++;
 	return depth;
@@ -177,7 +177,7 @@ __host__ __device__ int playIterative(RecurseContext *c, PlayState play, PlaySta
 	//? To prevent crashes when the initial moneyValue is already larger than the goal
 	if (stack[depth].params.state.money >= (*c).moneyGoal) {
 		return 0;
-	};
+	}
 
 	while (true) {
 		if (
@@ -190,7 +190,7 @@ __host__ __device__ int playIterative(RecurseContext *c, PlayState play, PlaySta
 				stack[depth].params.problems + 9999
 			);
 			continue;
-		};
+		}
 
 		if (stack[depth].params.state.money >= (*c).moneyGoal) {
 			depth = iterativeReturn(
@@ -198,20 +198,20 @@ __host__ __device__ int playIterative(RecurseContext *c, PlayState play, PlaySta
 				stack[depth].params.problems
 			);
 			continue;
-		};
+		}
 
 		if (stack[depth].branch == (*c).upgradesSize) {
 			result[startOffset + depth] = stack[depth].minTarget;
 			if (depth == 0) {
 				return stack[depth].currentMin;
-			};
+			}
 
 			depth = iterativeReturn(
 				stack, depth,
 				stack[depth].currentMin
 			);
 			continue;
-		};
+		}
 
 		if (depth == (*c).max) {
 			GoalResult res = playGoal(
@@ -226,7 +226,7 @@ __host__ __device__ int playIterative(RecurseContext *c, PlayState play, PlaySta
 				stack[depth].params.problems + res.problems
 			);
 			continue;
-		};
+		}
 
 		if (getStat(
 			stack[depth].params.state.stats,
@@ -257,13 +257,13 @@ __host__ __device__ int playIterative(RecurseContext *c, PlayState play, PlaySta
 			stack[depth].params.problems + res.problems,
 			stack[depth].currentMin
 		}, depth);
-	};
+	}
 }
 
 void assignVecToPointer(std::vector<int> vec, int *result, int size) {
 	for (int i = 0; i < size; i++) {
 		result[i] = vec[i];
-	};
+	}
 }
 
 UpgradeLevel* allocUpgradeLevels(std::vector<UpgradeLevel> levels) {
@@ -271,7 +271,7 @@ UpgradeLevel* allocUpgradeLevels(std::vector<UpgradeLevel> levels) {
 	cudaMallocManaged(&result, sizeof(UpgradeLevel) * levels.size());
 	for (int i = 0; i < levels.size(); i++) {
 		result[i] = levels[i];
-	};
+	}
 	return result;
 }
 
@@ -312,8 +312,8 @@ int* initializeSequence(std::vector<int> init, int targetSize) {
 		sequence[i] = -1;
 		if (i < init.size()) {
 			sequence[i] = init[i];
-		};
-	};
+		}
+	}
 
 	return sequence;
 }
@@ -323,7 +323,7 @@ int* initializeUpgrades(std::vector<int> init) {
 	cudaMallocManaged(&upgrades, sizeof(int) * init.size());
 	for (int i = 0; i < init.size(); i++) {
 		upgrades[i] = init[i];
-	};
+	}
 
 	return upgrades;
 }
@@ -333,7 +333,7 @@ PlayStackFrame* initializeStack(int lowerDepth, int upgradesSize) {
 	cudaMallocManaged(&stack, sizeof(PlayStackFrame) * (lowerDepth+1));
 	for (int i = 0; i < lowerDepth+1; i++) {
 		stack[i] = {};
-	};
+	}
 
 	return stack;
 }
@@ -343,7 +343,7 @@ __global__ void computeStrategy(int *progress, RecurseContext *c, TRecurseResult
 	int index = threadIdx.x + blockIdx.x * blockDim.x;
 	if (index >= rootSize) {
 		return;
-	};
+	}
 
 	curand_init(1234, index, 0, results[index].init.randState);
 	int problems = playIterative(
@@ -392,31 +392,31 @@ int computeSync(std::vector<int> upgrades, Money moneyGoal, int *result, Compute
 				printf("\r");
 			} else {
 				printf("\n");
-			};
+			}
 
 			if (rootOf > lastLogpoint * (opts.loggingFidelity * roots.size())) {
 				printf("Root %d/%zd Problems: %d |", rootOf+1, roots.size(), problems);
 				for (int i = 0; i < opts.maxDepth; i++) {
 					printf(" %d", recurseResult[i]);
-				};
+				}
 				for (int i = 0; i < 10; i++) {
 					printf(" ");
-				};
+				}
 
 				lastLogpoint++;
-			};
-		};
+			}
+		}
 
 		if (min < 0 || problems < min) {
 			min = problems;
 			for (int i = 0; i < opts.maxDepth; i++) {
 				result[i] = recurseResult[i];
-			};
-		};
+			}
+		}
 
 		cudaFree(recurseResult);
 		rootOf++;
-	};
+	}
 
 	cudaFree(recurseUpgrades);
 	return min;
@@ -477,7 +477,7 @@ int computeThreaded(std::vector<int> upgrades, Money moneyGoal, int *output, Com
 			roots[i].problems,
 			sequence
 		};
-	};
+	}
 
 	printf("Memory Allocation Succeeded\n");
 
@@ -493,10 +493,11 @@ int computeThreaded(std::vector<int> upgrades, Money moneyGoal, int *output, Com
 		cudaDeviceProp *props;
 		cudaMallocManaged(&props, sizeof(cudaDeviceProp));
 		cudaError_t error = cudaGetDeviceProperties(props, 0);
-		if (error != cudaSuccess)
+		if (error != cudaSuccess) {
 			printf("GPU version error %s\n", cudaGetErrorString(error));
-		printf("GPU Compute Capability %d.%d\n\n", props->major, props->minor);
+		}
 
+		printf("GPU Compute Capability %d.%d\n\n", props->major, props->minor);
 		progress = createHostProgress();
 		d_progress = createPinnedProgress(progress);
 
@@ -504,7 +505,7 @@ int computeThreaded(std::vector<int> upgrades, Money moneyGoal, int *output, Com
 		cudaEventCreate(&stop);
 
 		cudaEventRecord(start);
-	};
+	}
 
 	computeStrategy<<<threadBlocks, BLOCK_SIZE>>>(
 		d_progress, rc, results, roots.size(), opts.syncDepth
@@ -522,14 +523,15 @@ int computeThreaded(std::vector<int> upgrades, Money moneyGoal, int *output, Com
 			if (trueProgress - bufProgress >= roots.size() * opts.loggingFidelity) {
 				printf("Progress %d / %zd\n", bufProgress, roots.size());
 				bufProgress = trueProgress;
-			};
+			}
 		} while (trueProgress < roots.size());
 
 		cudaEventSynchronize(stop);
-	} else
+	} else {
 		cudaDeviceSynchronize();
+	}
 
-	printf("\nCompute Status %s\n", cudaGetErrorString(cudaGetLastError()));
+	printf("\nCompute Status (ignore if there is no visible error) %s\n", cudaGetErrorString(cudaGetLastError()));
 
 	float *elapsed = new float;
 	cudaEventElapsedTime(elapsed, start, stop);
@@ -542,13 +544,13 @@ int computeThreaded(std::vector<int> upgrades, Money moneyGoal, int *output, Com
 			min = results[i].problems;
 			for (int x = 0; x < opts.maxDepth; x++) {
 				output[x] = results[i].sequence[x];
-			};
-		};
+			}
+		}
 
 		cudaFree(results[i].init.randState);
 		cudaFree(results[i].sequence);
 		cudaFree(results[i].stack);
-	};
+	}
 
 	cudaFree(results);
 	cudaFree(recurseUpgrades);
@@ -623,14 +625,14 @@ int main(int argc, char** argv)
 			upgrades, moneyGoal,
 			result, opts
 		);
-	};
+	}
 
 	printf("========== RESULTS ==========\n");
 	printf("Minimum Problems: %d\n", min);
 	printf("Sequence Required: ");
 	for (int i = 0; i < maxDepth; i++) {
 		printf("%d ", result[i]);
-	};
+	}
 
 	return 0;
 }
