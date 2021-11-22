@@ -96,11 +96,6 @@ __host__ __device__ struct GoalResult playGoal(UpgradeLevel **data, PlayState s,
 
 __host__ __device__ struct GoalResult playUpgrade(UpgradeLevel **data, PlayState s, int target, int giveup)
 {
-	if (getStat(s.stats, target) >= MAX_LEVEL)
-	{
-		return GoalResult{0, s.money};
-	};
-
 	int goal = data[target][getStat(s.stats, target) + 1].cost;
 	GoalResult result = playGoal(data, s, goal, giveup);
 	result.newMoney -= goal;
@@ -232,6 +227,14 @@ __host__ __device__ int playIterative(RecurseContext *c, PlayState play, PlaySta
 			);
 			continue;
 		};
+
+		if (getStat(
+			stack[depth].params.state.stats,
+			(*c).upgrades[stack[depth].branch]
+		)+1 >= MAX_LEVEL) {
+			depth = iterativeCall(stack, stack[depth].params, depth);
+			continue;
+		}
 
 		GoalResult res = playUpgrade(
 			(*c).data, stack[depth].params.state,
