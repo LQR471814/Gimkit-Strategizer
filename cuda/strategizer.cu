@@ -20,7 +20,7 @@ __host__ __device__ void printPlayState(PlayState p) {
 	);
 }
 
-__host__ __device__ UpgradeStats incrementStat(UpgradeStats s, int id)
+__forceinline__ __host__ __device__ UpgradeStats incrementStat(UpgradeStats s, int id)
 {
 	switch (id)
 	{
@@ -41,7 +41,7 @@ __host__ __device__ UpgradeStats incrementStat(UpgradeStats s, int id)
 	return s;
 }
 
-__host__ __device__ int getStat(UpgradeStats s, int id)
+__forceinline__ __host__ __device__ int getStat(UpgradeStats s, int id)
 {
 	switch (id)
 	{
@@ -60,41 +60,36 @@ __host__ __device__ int getStat(UpgradeStats s, int id)
 
 __host__ __device__ struct GoalResult playGoal(UpgradeLevel **data, PlayState s, Money goal, int giveup)
 {
-	int problems = 0;
-	float streak = 0;
-	Money money = s.money;
-
-	UpgradeLevel mq = data[MONEY_PER_QUESTION][s.stats.moneyPerQuestion];
-	UpgradeLevel sb = data[STREAK_BONUS][s.stats.streakBonus];
-	UpgradeLevel mu = data[MULTIPLIER][s.stats.multiplier];
-	UpgradeLevel in = data[INSURANCE][s.stats.insurance];
-
-	while (money < goal && (problems <= giveup || giveup < 0))
-	{
-	#ifdef __CUDA_ARCH__
-		float i = curand_uniform(s.randState);
-	#else
-		float i = static_cast<float>(rand()) / static_cast<float>(RAND_MAX);
-	#endif
-		if (i < s.setbackChance)
-		{
-			money -= (Money) (mq.value * mu.value) - (mq.value * mu.value) * in.value / 100;
-		}
-		else
-		{
-			money += (Money) mu.value * (mq.value + sb.value * streak);
-			//? Apparantly the largest answer streak you can get is 100
-			if (streak < 100)
-				streak++;
-		}
-
-		problems++;
+	if (s.money >= goal) {
+		return GoalResult{0, s.money};
 	}
 
-	return GoalResult{problems, money};
+	float mq = data[MONEY_PER_QUESTION][s.stats.moneyPerQuestion].value;
+	float sb = data[STREAK_BONUS][s.stats.streakBonus].value;
+	float mu = data[MULTIPLIER][s.stats.multiplier].value;
+	// float in = data[INSURANCE][s.stats.insurance].value;
+
+	float a = mu*sb;
+	float b = -mu*(sb - 2*mq);
+	float c = 2*(s.money-goal);
+
+	float problems = ceilf(
+		(-b + sqrtf(pow(b, 2) - 4*a*c)) / (2*a)
+	);
+
+	Money money = s.money + (
+		mu*problems * (
+			2*mq + sb*(problems - 1)
+		)
+	) / 2;
+
+	return GoalResult{
+		int(problems),
+		money
+	};
 }
 
-__host__ __device__ struct GoalResult playUpgrade(UpgradeLevel **data, PlayState s, int target, int giveup)
+__forceinline__ __host__ __device__ struct GoalResult playUpgrade(UpgradeLevel **data, PlayState s, int target, int giveup)
 {
 	int goal = data[target][getStat(s.stats, target) + 1].cost;
 	GoalResult result = playGoal(data, s, goal, giveup);
@@ -231,7 +226,7 @@ __host__ __device__ int playIterative(RecurseContext *c, PlayState play, PlaySta
 		if (getStat(
 			stack[depth].params.state.stats,
 			(*c).upgrades[stack[depth].branch]
-		)+1 >= MAX_LEVEL) {
+		)+1 == MAX_LEVEL) {
 			depth = iterativeCall(stack, stack[depth].params, depth);
 			continue;
 		}

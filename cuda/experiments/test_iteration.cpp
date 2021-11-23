@@ -71,41 +71,30 @@ struct UpgradeLevel getUpgrade(UpgradeIndex *data, int id, int level)
 
 struct GoalResult playGoal(UpgradeIndex *data, PlayState s, Money goal)
 {
-	int problems = 0;
-	float streak = 0;
-	Money money = s.money;
+	float mq = (*data).moneyPerQuestion[s.stats.moneyPerQuestion].value;
+	float sb = (*data).streakBonus[s.stats.streakBonus].value;
+	float mu = (*data).multiplier[s.stats.multiplier].value;
+	float in = (*data).insurance[s.stats.insurance].value;
 
-	UpgradeLevel mq = (*data).moneyPerQuestion[s.stats.moneyPerQuestion];
-	UpgradeLevel sb = (*data).streakBonus[s.stats.streakBonus];
-	UpgradeLevel mu = (*data).multiplier[s.stats.multiplier];
-	UpgradeLevel in = (*data).insurance[s.stats.insurance];
+	double a = mu*sb;
+	double b = -mu*(sb - 2*mq);
+	double c = 2*(s.money-goal);
 
-	while (money < goal)
-	{
-		float i = static_cast<float>(rand()) / static_cast<float>(RAND_MAX);
-		if (i < s.setbackChance)
-		{
-			money -= (Money) (mq.value * mu.value) - (mq.value * mu.value) * in.value / 100;
-		}
-		else
-		{
-			money += (Money) mu.value * (mq.value + sb.value * streak);
-			streak++;
-		}
+	double problems = ceilf(
+		(-b + sqrtf(pow(b, 2) - 4*a*c)) / (2*a)
+	);
 
-		problems++;
-	};
+	Money money = s.money + (
+		mu*problems * (
+			2*mq + sb*(problems - 1)
+		)
+	) / 2;
 
-	return GoalResult{problems, money};
+	return GoalResult{int(problems), money};
 }
 
 struct GoalResult playUpgrade(UpgradeIndex *data, PlayState s, int target)
 {
-	if (getStat(s.stats, target) > data->MAX_LEVEL)
-	{
-		return GoalResult{0, s.money};
-	};
-
 	int goal = getUpgrade(data, target, getStat(s.stats, target) + 1).cost;
 	GoalResult result = playGoal(data, s, goal);
 	result.newMoney -= goal;
@@ -225,6 +214,14 @@ int playIterative(RecurseContext *c, PlayState play, PlayStackFrame *stack, int 
 			depth = iterativeReturn(stack, depth, stack[depth].params.problems + res.problems);
 			continue;
 		};
+
+		if (getStat(
+			stack[depth].params.state.stats,
+			(*c).upgrades[stack[depth].branch]
+		)+1 == (*c).data->MAX_LEVEL) {
+			depth = iterativeCall(stack, stack[depth].params, depth);
+			continue;
+		}
 
 		GoalResult res = playUpgrade(
 			(*c).data, stack[depth].params.state,
@@ -402,9 +399,9 @@ int computeSync(std::vector<int> upgrades, Money moneyGoal, int syncDepth, int m
 int main()
 {
 	int syncDepth = 2;
-	int maxDepth = 7;
+	int maxDepth = 15;
 	// Money moneyGoal = 1000000000000; //? First to a trillion
-	Money moneyGoal = 1000;
+	Money moneyGoal = 1000000000;
 
 	std::vector<int> upgrades = {
 		MONEY_PER_QUESTION,
