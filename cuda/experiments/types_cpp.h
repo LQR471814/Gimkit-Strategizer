@@ -54,7 +54,7 @@ struct RecurseContext
 	int upgradesSize;
 };
 
-struct TRecurseResult
+struct TComputeStates
 {
 	struct PlayState init;
 	int problems;

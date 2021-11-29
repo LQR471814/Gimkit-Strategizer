@@ -1,4 +1,3 @@
-#include <cuda.h>
 #include <curand.h>
 #include <curand_kernel.h>
 
@@ -6,57 +5,11 @@
 #include <stdlib.h>
 #include <math.h>
 
-#include "types.h"
+#include "types.hpp"
 #include "CLI11.hpp"
 
-__host__ __device__ void printPlayState(PlayState p) {
-	printf(
-		"$%f Stats %d %d %d %d\n",
-		p.money,
-		p.stats.moneyPerQuestion,
-		p.stats.streakBonus,
-		p.stats.multiplier,
-		p.stats.insurance
-	);
-}
-
-__forceinline__ __host__ __device__ UpgradeStats incrementStat(UpgradeStats s, int id)
-{
-	switch (id)
-	{
-	case MONEY_PER_QUESTION:
-		s.moneyPerQuestion++;
-		break;
-	case STREAK_BONUS:
-		s.streakBonus++;
-		break;
-	case MULTIPLIER:
-		s.multiplier++;
-		break;
-	case INSURANCE:
-		s.insurance++;
-		break;
-	}
-
-	return s;
-}
-
-__forceinline__ __host__ __device__ int getStat(UpgradeStats s, int id)
-{
-	switch (id)
-	{
-	case MONEY_PER_QUESTION:
-		return s.moneyPerQuestion;
-	case STREAK_BONUS:
-		return s.streakBonus;
-	case MULTIPLIER:
-		return s.multiplier;
-	case INSURANCE:
-		return s.insurance;
-	}
-
-	return -1;
-}
+#include "misc.hpp"
+#include "pinned_memory.hpp"
 
 __host__ __device__ struct GoalResult playGoal(UpgradeLevel **data, PlayState s, Money goal, int giveup)
 {
@@ -83,10 +36,7 @@ __host__ __device__ struct GoalResult playGoal(UpgradeLevel **data, PlayState s,
 		)
 	) / 2;
 
-	return GoalResult{
-		int(problems),
-		money
-	};
+	return GoalResult{int(problems), money};
 }
 
 __forceinline__ __host__ __device__ struct GoalResult playUpgrade(UpgradeLevel **data, PlayState s, int target, int giveup)
@@ -333,7 +283,7 @@ PlayStackFrame* initializeStack(int lowerDepth, int upgradesSize) {
 	return stack;
 }
 
-__global__ void computeStrategy(int *progress, RecurseContext *c, TRecurseResult *results, int rootSize, int depth)
+__global__ void computeStrategy(int *progress, RecurseContext *c, TComputeStates *results, int rootSize, int depth)
 {
 	int index = threadIdx.x + blockIdx.x * blockDim.x;
 	if (index >= rootSize) {
@@ -353,91 +303,11 @@ __global__ void computeStrategy(int *progress, RecurseContext *c, TRecurseResult
 		atomicAdd(progress, 1);
 }
 
-int computeSync(std::vector<int> upgrades, Money moneyGoal, int *result, ComputeOptions opts) {
+RecurseContext* initializeContext(std::vector<int> upgrades, Money moneygoal, ComputeOptions options) {
 	struct UpgradeLevel **data = initializeIndex();
-
-	std::vector<Permutation> roots = getRoots(data, upgrades, opts.syncDepth);
-	int *recurseUpgrades = initializeUpgrades(upgrades);
-	int lowerDepth = opts.maxDepth - opts.syncDepth;
-
-	RecurseContext rc = {
-		data,
-		lowerDepth,
-		moneyGoal,
-		recurseUpgrades,
-		static_cast<int>(upgrades.size()),
-	};
-
-	printf("Memory Allocation Succeeded\n");
-	printf("Roots: %d\n", static_cast<int>(roots.size()));
-
-	int min = -1;
-	int rootOf = 0;
-	int lastLogpoint = 0;
-	for (Permutation p : roots)
-	{
-		int *recurseResult = initializeSequence(p.sequence, opts.maxDepth);
-		PlayStackFrame *stack = initializeStack(lowerDepth, upgrades.size());
-
-		int problems = p.problems + playIterative(&rc, p.play, stack, recurseResult, opts.syncDepth);
-		cudaFree(stack);
-
-		if (opts.verboseLog) {
-			if (rootOf != roots.size()-1) {
-				printf("\r");
-			} else {
-				printf("\n");
-			}
-
-			if (rootOf > lastLogpoint * (opts.loggingFidelity * roots.size())) {
-				printf("Root %d/%zd Problems: %d |", rootOf+1, roots.size(), problems);
-				for (int i = 0; i < opts.maxDepth; i++) {
-					printf(" %d", recurseResult[i]);
-				}
-				for (int i = 0; i < 10; i++) {
-					printf(" ");
-				}
-
-				lastLogpoint++;
-			}
-		}
-
-		if (min < 0 || problems < min) {
-			min = problems;
-			for (int i = 0; i < opts.maxDepth; i++) {
-				result[i] = recurseResult[i];
-			}
-		}
-
-		cudaFree(recurseResult);
-		rootOf++;
-	}
-
-	cudaFree(recurseUpgrades);
-	return min;
-}
-
-int* createHostProgress() {
-	int *progress;
-	cudaMallocHost(&progress, sizeof(int));
-	cudaHostRegister(progress, sizeof(int), 0);
-	*progress = 0;
-
-	return progress;
-}
-
-int* createPinnedProgress(int *hostPtr) {
-	int *pinnedPtr;
-	cudaHostGetDevicePointer(&pinnedPtr, hostPtr, 0);
-	return pinnedPtr;
-}
-
-int computeThreaded(std::vector<int> upgrades, Money moneyGoal, int *output, ComputeOptions opts) {
-	struct UpgradeLevel **data = initializeIndex();
-	std::vector<Permutation> roots = getRoots(data, upgrades, opts.syncDepth);
 	int *recurseUpgrades = initializeUpgrades(upgrades);
 
-	int lowerDepth = opts.maxDepth - opts.syncDepth;
+	int lowerDepth = options.maxDepth - options.syncDepth;
 	int *globalMin;
 	cudaMallocManaged(&globalMin, sizeof(int));
 	*globalMin = -1;
@@ -445,7 +315,7 @@ int computeThreaded(std::vector<int> upgrades, Money moneyGoal, int *output, Com
 	RecurseContext c = {
 		data,
 		lowerDepth,
-		moneyGoal,
+		moneygoal,
 		recurseUpgrades,
 		static_cast<int>(upgrades.size()),
 		globalMin,
@@ -455,18 +325,29 @@ int computeThreaded(std::vector<int> upgrades, Money moneyGoal, int *output, Com
 	cudaMallocManaged(&rc, sizeof(RecurseContext));
 	*rc = c;
 
-	TRecurseResult *results;
-	cudaMallocManaged(&results, sizeof(TRecurseResult) * roots.size());
+	return rc;
+}
+
+void deallocateContext(RecurseContext *rc) {
+	cudaFree(rc->upgrades);
+	cudaFree(rc->currentMinimum);
+	deallocateIndex(rc->data);
+	cudaFree(rc);
+}
+
+TComputeStates* initializeThreadStates(std::vector<Permutation> roots, int upgrades, ComputeOptions opts) {
+	TComputeStates *results;
+	cudaMallocManaged(&results, sizeof(TComputeStates) * roots.size());
 
 	for (int i = 0; i < roots.size(); i++) {
 		int *sequence = initializeSequence(roots[i].sequence, opts.maxDepth);
-		PlayStackFrame *stack = initializeStack(lowerDepth, upgrades.size());
+		PlayStackFrame *stack = initializeStack(opts.maxDepth - opts.syncDepth, upgrades);
 
 		curandState *gen = NULL;
 		cudaMallocManaged(&gen, sizeof(curandState));
 
 		roots[i].play.randState = gen;
-		results[i] = TRecurseResult{
+		results[i] = TComputeStates{
 			roots[i].play,
 			stack,
 			roots[i].problems,
@@ -474,10 +355,16 @@ int computeThreaded(std::vector<int> upgrades, Money moneyGoal, int *output, Com
 		};
 	}
 
+	return results;
+}
+
+int compute(std::vector<int> upgrades, Money moneyGoal, int *output, ComputeOptions opts) {
+	RecurseContext *rc = initializeContext(upgrades, moneyGoal, opts);
+	std::vector<Permutation> roots = getRoots((*rc).data, upgrades, opts.syncDepth);
+	TComputeStates* states = initializeThreadStates(roots, upgrades.size(), opts);
 	printf("Memory Allocation Succeeded\n");
 
 	int threadBlocks = ceil(float(roots.size()) / float(BLOCK_SIZE));
-
 	printf("Blocksize %d\n", BLOCK_SIZE);
 	printf("Roots %zd Blocks %d\n", roots.size(), threadBlocks);
 
@@ -485,25 +372,17 @@ int computeThreaded(std::vector<int> upgrades, Money moneyGoal, int *output, Com
 	cudaEvent_t start, stop;
 
 	if (opts.verboseLog) {
-		cudaDeviceProp *props;
-		cudaMallocManaged(&props, sizeof(cudaDeviceProp));
-		cudaError_t error = cudaGetDeviceProperties(props, 0);
-		if (error != cudaSuccess) {
-			printf("GPU version error %s\n", cudaGetErrorString(error));
-		}
-
-		printf("GPU Compute Capability %d.%d\n\n", props->major, props->minor);
-		progress = createHostProgress();
-		d_progress = createPinnedProgress(progress);
+		printGPUInfo();
+		progress = createHostPointer<int>(0);
+		d_progress = createPinnedPointer<int>(progress);
 
 		cudaEventCreate(&start);
 		cudaEventCreate(&stop);
-
 		cudaEventRecord(start);
 	}
 
 	computeStrategy<<<threadBlocks, BLOCK_SIZE>>>(
-		d_progress, rc, results, roots.size(), opts.syncDepth
+		d_progress, rc, states, roots.size(), opts.syncDepth
 	);
 
 	if (opts.verboseLog) {
@@ -512,15 +391,13 @@ int computeThreaded(std::vector<int> upgrades, Money moneyGoal, int *output, Com
 		int bufProgress = 0;
 		int trueProgress = 0;
 		do {
-				cudaEventQuery(stop);
-
+			cudaEventQuery(stop);
 			trueProgress = *progress;
 			if (trueProgress - bufProgress >= roots.size() * opts.loggingFidelity) {
 				printf("Progress %d / %zd\n", bufProgress, roots.size());
 				bufProgress = trueProgress;
 			}
 		} while (trueProgress < roots.size());
-
 		cudaEventSynchronize(stop);
 	} else {
 		cudaDeviceSynchronize();
@@ -535,23 +412,20 @@ int computeThreaded(std::vector<int> upgrades, Money moneyGoal, int *output, Com
 
 	int min = -1;
 	for (int i = 0; i < roots.size(); i++) {
-		if (min < 0 || results[i].problems < min) {
-			min = results[i].problems;
+		if (min < 0 || states[i].problems < min) {
+			min = states[i].problems;
 			for (int x = 0; x < opts.maxDepth; x++) {
-				output[x] = results[i].sequence[x];
+				output[x] = states[i].sequence[x];
 			}
 		}
 
-		cudaFree(results[i].init.randState);
-		cudaFree(results[i].sequence);
-		cudaFree(results[i].stack);
+		cudaFree(states[i].init.randState);
+		cudaFree(states[i].sequence);
+		cudaFree(states[i].stack);
 	}
 
-	cudaFree(results);
-	cudaFree(recurseUpgrades);
-	cudaFree(rc);
-	cudaFree(globalMin);
-	deallocateIndex(data);
+	cudaFree(states);
+	deallocateContext(rc);
 	return min;
 }
 
@@ -560,10 +434,7 @@ int main(int argc, char** argv)
 	CLI::App app{"A program that simulates many, many gimkit games"};
 
 	bool consise = false;
-	app.add_flag("-c,--consise", consise, "Run program without verbose logging");
-
-	bool sync = false;
-	app.add_flag("-s,--sync", sync, "Calculate synchronously");
+	app.add_flag("-c,--concise", consise, "Run program without verbose logging");
 
 	Money moneyGoal = 1000000;
 	app.add_option<Money, double>(
@@ -610,17 +481,7 @@ int main(int argc, char** argv)
 
 	int min = 0;
 	int *result = new int[maxDepth];
-	if (sync) {
-		min = computeSync(
-			upgrades, moneyGoal,
-			result, opts
-		);
-	} else {
-		min = computeThreaded(
-			upgrades, moneyGoal,
-			result, opts
-		);
-	}
+	min = compute(upgrades, moneyGoal, result, opts);
 
 	printf("========== RESULTS ==========\n");
 	printf("Minimum Problems: %d\n", min);

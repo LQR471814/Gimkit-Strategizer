@@ -141,7 +141,7 @@ struct PlayStackFrame
 	int minTarget = -1;
 };
 
-struct TRecurseResult
+struct TComputeStates
 {
 	struct PlayState init;
 	PlayStackFrame *stack;
@@ -156,3 +156,52 @@ struct ComputeOptions {
 	float loggingFidelity;
 	bool verboseLog;
 };
+
+__host__ __device__ void printPlayState(PlayState p) {
+	printf(
+		"$%f Stats %d %d %d %d\n",
+		p.money,
+		p.stats.moneyPerQuestion,
+		p.stats.streakBonus,
+		p.stats.multiplier,
+		p.stats.insurance
+	);
+}
+
+__forceinline__ __host__ __device__ UpgradeStats incrementStat(UpgradeStats s, int id)
+{
+	switch (id)
+	{
+	case MONEY_PER_QUESTION:
+		s.moneyPerQuestion++;
+		break;
+	case STREAK_BONUS:
+		s.streakBonus++;
+		break;
+	case MULTIPLIER:
+		s.multiplier++;
+		break;
+	case INSURANCE:
+		s.insurance++;
+		break;
+	}
+
+	return s;
+}
+
+__forceinline__ __host__ __device__ int getStat(UpgradeStats s, int id)
+{
+	switch (id)
+	{
+	case MONEY_PER_QUESTION:
+		return s.moneyPerQuestion;
+	case STREAK_BONUS:
+		return s.streakBonus;
+	case MULTIPLIER:
+		return s.multiplier;
+	case INSURANCE:
+		return s.insurance;
+	}
+
+	return -1;
+}
