@@ -4,3 +4,5 @@
 *.lib
 /.vscode/
 *.ncu-rep
+
+/cuda/CLI11.hpp
