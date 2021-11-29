@@ -370,7 +370,6 @@ int compute(std::vector<int> upgrades, Money moneyGoal, int *output, ComputeOpti
 	printf("Roots %zd Blocks %d\n", roots.size(), threadBlocks);
 
 	// --> Initialize progress and gpu compute control
-	int *running = 0;
 	int *progress = NULL, *d_progress = NULL;
 	cudaEvent_t start, stop;
 
