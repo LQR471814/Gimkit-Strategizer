@@ -114,7 +114,7 @@ __forceinline__ __host__ __device__ int iterativeReturn(PlayStackFrame *stack, i
 	return depth;
 }
 
-__host__ __device__ int playIterative(RecurseContext *c, PlayState play, PlayStackFrame *stack, int *result, int startOffset)
+__host__ __device__ int playIterative(ComputeContext *c, PlayState play, PlayStackFrame *stack, int *result, int startOffset)
 {
 	int depth = 0;
 	stack[depth].params.state = play;
@@ -283,7 +283,7 @@ PlayStackFrame* initializeStack(int lowerDepth, int upgradesSize) {
 	return stack;
 }
 
-__global__ void computeStrategy(int *progress, RecurseContext *c, TComputeStates *results, int rootSize, int depth)
+__global__ void computeStrategy(int *progress, ComputeContext *c, TComputeStates *results, int rootSize, int depth)
 {
 	int index = threadIdx.x + blockIdx.x * blockDim.x;
 	if (index >= rootSize) {
@@ -303,7 +303,7 @@ __global__ void computeStrategy(int *progress, RecurseContext *c, TComputeStates
 		atomicAdd(progress, 1);
 }
 
-RecurseContext* initializeContext(std::vector<int> upgrades, Money moneygoal, ComputeOptions options) {
+ComputeContext* initializeContext(std::vector<int> upgrades, Money moneygoal, ComputeOptions options) {
 	struct UpgradeLevel **data = initializeIndex();
 	int *recurseUpgrades = initializeUpgrades(upgrades);
 
@@ -312,7 +312,7 @@ RecurseContext* initializeContext(std::vector<int> upgrades, Money moneygoal, Co
 	cudaMallocManaged(&globalMin, sizeof(int));
 	*globalMin = -1;
 
-	RecurseContext c = {
+	ComputeContext c = {
 		data,
 		lowerDepth,
 		moneygoal,
@@ -321,14 +321,14 @@ RecurseContext* initializeContext(std::vector<int> upgrades, Money moneygoal, Co
 		globalMin,
 	};
 
-	RecurseContext *rc = NULL;
-	cudaMallocManaged(&rc, sizeof(RecurseContext));
+	ComputeContext *rc = NULL;
+	cudaMallocManaged(&rc, sizeof(ComputeContext));
 	*rc = c;
 
 	return rc;
 }
 
-void deallocateContext(RecurseContext *rc) {
+void deallocateContext(ComputeContext *rc) {
 	cudaFree(rc->upgrades);
 	cudaFree(rc->currentMinimum);
 	deallocateIndex(rc->data);
@@ -359,7 +359,8 @@ TComputeStates* initializeThreadStates(std::vector<Permutation> roots, int upgra
 }
 
 int compute(std::vector<int> upgrades, Money moneyGoal, int *output, ComputeOptions opts) {
-	RecurseContext *rc = initializeContext(upgrades, moneyGoal, opts);
+	// --> Initialize Roots / Compute States
+	ComputeContext *rc = initializeContext(upgrades, moneyGoal, opts);
 	std::vector<Permutation> roots = getRoots((*rc).data, upgrades, opts.syncDepth);
 	TComputeStates* states = initializeThreadStates(roots, upgrades.size(), opts);
 	printf("Memory Allocation Succeeded\n");
@@ -368,41 +369,39 @@ int compute(std::vector<int> upgrades, Money moneyGoal, int *output, ComputeOpti
 	printf("Blocksize %d\n", BLOCK_SIZE);
 	printf("Roots %zd Blocks %d\n", roots.size(), threadBlocks);
 
+	// --> Initialize progress and gpu compute control
+	int *running = 0;
 	int *progress = NULL, *d_progress = NULL;
 	cudaEvent_t start, stop;
 
-	if (opts.verboseLog) {
-		printGPUInfo();
-		progress = createHostPointer<int>(0);
-		d_progress = createPinnedPointer<int>(progress);
+	printGPUInfo();
+	progress = createHostPointer<int>(0);
+	d_progress = createPinnedPointer<int>(progress);
 
-		cudaEventCreate(&start);
-		cudaEventCreate(&stop);
-		cudaEventRecord(start);
-	}
+	cudaEventCreate(&start);
+	cudaEventCreate(&stop);
+	cudaEventRecord(start);
 
+	// --> Run
 	computeStrategy<<<threadBlocks, BLOCK_SIZE>>>(
 		d_progress, rc, states, roots.size(), opts.syncDepth
 	);
 
-	if (opts.verboseLog) {
-		cudaEventRecord(stop);
+	// --> Report progress
+	cudaEventRecord(stop);
+	int bufProgress = 0;
+	int trueProgress = 0;
+	do {
+		cudaEventQuery(stop);
+		trueProgress = *progress;
+		if (trueProgress - bufProgress >= roots.size() * opts.loggingFidelity) {
+			printf("Progress %d / %zd\n", bufProgress, roots.size());
+			bufProgress = trueProgress;
+		}
+	} while (trueProgress < roots.size());
 
-		int bufProgress = 0;
-		int trueProgress = 0;
-		do {
-			cudaEventQuery(stop);
-			trueProgress = *progress;
-			if (trueProgress - bufProgress >= roots.size() * opts.loggingFidelity) {
-				printf("Progress %d / %zd\n", bufProgress, roots.size());
-				bufProgress = trueProgress;
-			}
-		} while (trueProgress < roots.size());
-		cudaEventSynchronize(stop);
-	} else {
-		cudaDeviceSynchronize();
-	}
-
+	// --> Report run performance
+	cudaEventSynchronize(stop);
 	printf("\nCompute Status (ignore if there is no visible error) %s\n", cudaGetErrorString(cudaGetLastError()));
 
 	float *elapsed = new float;
@@ -410,6 +409,7 @@ int compute(std::vector<int> upgrades, Money moneyGoal, int *output, ComputeOpti
 	printf("Completed in %fs\n", (*elapsed) / 1000);
 	delete elapsed;
 
+	// --> Sort results
 	int min = -1;
 	for (int i = 0; i < roots.size(); i++) {
 		if (min < 0 || states[i].problems < min) {
@@ -424,6 +424,7 @@ int compute(std::vector<int> upgrades, Money moneyGoal, int *output, ComputeOpti
 		cudaFree(states[i].stack);
 	}
 
+	// --> Cleanup
 	cudaFree(states);
 	deallocateContext(rc);
 	return min;
@@ -432,9 +433,6 @@ int compute(std::vector<int> upgrades, Money moneyGoal, int *output, ComputeOpti
 int main(int argc, char** argv)
 {
 	CLI::App app{"A program that simulates many, many gimkit games"};
-
-	bool consise = false;
-	app.add_flag("-c,--concise", consise, "Run program without verbose logging");
 
 	Money moneyGoal = 1000000;
 	app.add_option<Money, double>(
@@ -476,7 +474,6 @@ int main(int argc, char** argv)
 		syncDepth,
 		maxDepth,
 		loggingFidelity,
-		!consise,
 	};
 
 	int min = 0;

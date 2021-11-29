@@ -114,7 +114,7 @@ struct PermuteState
 	std::vector<int> sequence;
 };
 
-struct RecurseContext
+struct ComputeContext
 {
 	UpgradeLevel **data;
 	int max;
@@ -154,7 +154,6 @@ struct ComputeOptions {
 	unsigned int maxDepth;
 
 	float loggingFidelity;
-	bool verboseLog;
 };
 
 __host__ __device__ void printPlayState(PlayState p) {

@@ -178,7 +178,7 @@ int iterativeReturn(PlayStackFrame *stack, int depth, int value) {
 	return depth;
 }
 
-int playIterative(RecurseContext *c, PlayState play, PlayStackFrame *stack, int *result, int startOffset)
+int playIterative(ComputeContext *c, PlayState play, PlayStackFrame *stack, int *result, int startOffset)
 {
 	int depth = 0;
 	stack[depth].params.state = play;
@@ -245,7 +245,7 @@ int playIterative(RecurseContext *c, PlayState play, PlayStackFrame *stack, int 
 	};
 }
 
-int playRecursive(RecurseContext *c, PlayState play, int *result, int depth)
+int playRecursive(ComputeContext *c, PlayState play, int *result, int depth)
 {
 	if (play.money >= (*c).moneyGoal)
 	{
@@ -350,7 +350,7 @@ int computeSync(std::vector<int> upgrades, Money moneyGoal, int syncDepth, int m
 
 	int lowerDepth = maxDepth - syncDepth;
 
-	RecurseContext rc = {
+	ComputeContext rc = {
 		data,
 		lowerDepth,
 		moneyGoal,

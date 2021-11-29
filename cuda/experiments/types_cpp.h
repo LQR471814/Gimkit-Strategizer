@@ -44,7 +44,7 @@ struct PermuteState
 	std::vector<int> sequence;
 };
 
-struct RecurseContext
+struct ComputeContext
 {
 	struct UpgradeIndex *data;
 	int max;
