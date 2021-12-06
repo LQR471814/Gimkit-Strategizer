@@ -3,20 +3,29 @@
 
 typedef double Money;
 
-const int BLOCK_SIZE = 256;
+typedef uint64_t Goal;
+typedef int64_t Minimum;
 
-const int MONEY_PER_QUESTION = 0;
-const int STREAK_BONUS = 1;
-const int MULTIPLIER = 2;
-const int INSURANCE = 3;
+typedef uint32_t ProblemCount;
 
-const int UPGRADE_COUNT = 4;
-const int MAX_LEVEL = 10;
+typedef int8_t UpgradeId;
+typedef uint8_t MaxUpgradeLevel;
+typedef uint8_t Depth;
+
+const uint16_t BLOCK_SIZE = 256;
+
+const UpgradeId MONEY_PER_QUESTION = 0;
+const UpgradeId STREAK_BONUS = 1;
+const UpgradeId MULTIPLIER = 2;
+const UpgradeId INSURANCE = 3;
+
+const uint8_t UPGRADE_COUNT = 4;
+const MaxUpgradeLevel MAX_LEVEL = 10;
 
 struct UpgradeLevel
 {
 	float value;
-	int cost;
+	uint32_t cost;
 };
 
 std::vector<UpgradeLevel> moneyPerQuestionLevels = {
@@ -74,15 +83,15 @@ std::vector<UpgradeLevel> insuranceLevels = {
 //? This doesn't use a pointer because that's kinda hard to implement
 struct UpgradeStats
 {
-	int moneyPerQuestion = 0;
-	int streakBonus = 0;
-	int multiplier = 0;
-	int insurance = 0;
+	MaxUpgradeLevel moneyPerQuestion = 0;
+	MaxUpgradeLevel streakBonus = 0;
+	MaxUpgradeLevel multiplier = 0;
+	MaxUpgradeLevel insurance = 0;
 };
 
 struct GoalResult
 {
-	int problems = -1;
+	ProblemCount problems = 0;
 	Money newMoney = -1;
 };
 
@@ -96,62 +105,63 @@ struct PlayState
 
 struct Permutation
 {
-	int problems;
-	std::vector<int> sequence;
+	ProblemCount problems;
+	std::vector<UpgradeId> sequence;
 	struct PlayState play;
 };
 
 struct PermuteContext
 {
 	UpgradeLevel **data;
-	std::vector<int> upgrades;
-	int max;
+	std::vector<UpgradeId> upgrades;
+	Depth max;
 };
 
 struct PermuteState
 {
 	struct PlayState play;
-	std::vector<int> sequence;
+	std::vector<UpgradeId> sequence;
 };
 
 struct ComputeContext
 {
 	UpgradeLevel **data;
-	int max;
+	Depth max;
 	Money moneyGoal;
 
-	int *upgrades;
-	int upgradesSize;
+	UpgradeId *upgrades;
+	MaxUpgradeLevel upgradesSize;
 
-	int *currentMinimum = NULL;
+	Minimum *currentMinimum;
+	uint8_t *running; //? 0 - running : 1 - stop
 };
 
 struct PlayStackParameters
 {
 	PlayState state = {};
-	int problems = 0;
-	int upperMinimum = -1;
+	ProblemCount problems = 0;
+	Minimum upperMinimum = -1;
 };
 
 struct PlayStackFrame
 {
 	PlayStackParameters params = {};
-	int branch = 0;
-	int currentMin = -1;
-	int minTarget = -1;
+	UpgradeId branch = 0;
+	Minimum currentMin = -1;
+	UpgradeId minTarget = -1;
 };
 
 struct TComputeStates
 {
 	struct PlayState init;
 	PlayStackFrame *stack;
-	int problems;
-	int *sequence;
+	ProblemCount problems;
+	UpgradeId *sequence;
 };
 
 struct ComputeOptions {
-	unsigned int syncDepth;
-	unsigned int maxDepth;
+	Depth syncDepth;
+	Depth maxDepth;
 
 	float loggingFidelity;
 };
