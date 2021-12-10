@@ -151,30 +151,32 @@ struct PlayStackFrame
 	UpgradeId minTarget = -1;
 };
 
-struct TComputeStates
+struct TComputeState
 {
 	struct PlayState init;
-	PlayStackFrame *stack;
 	ProblemCount problems;
+	Depth *depth;
+	PlayStackFrame *stack;
 	UpgradeId *sequence;
 };
 
-struct ComputeOptions {
+struct ComputeOptions
+{
 	Depth syncDepth;
 	Depth maxDepth;
 
 	float loggingFidelity;
 };
 
-__host__ __device__ void printPlayState(PlayState p) {
+__host__ __device__ void printPlayState(PlayState p)
+{
 	printf(
 		"$%f Stats %d %d %d %d\n",
 		p.money,
 		p.stats.moneyPerQuestion,
 		p.stats.streakBonus,
 		p.stats.multiplier,
-		p.stats.insurance
-	);
+		p.stats.insurance);
 }
 
 __forceinline__ __host__ __device__ UpgradeStats incrementStat(UpgradeStats s, int id)
@@ -213,4 +215,73 @@ __forceinline__ __host__ __device__ int getStat(UpgradeStats s, int id)
 	}
 
 	return -1;
+}
+
+template <typename T>
+void writeToPointer(char **ptr, T value)
+{
+	T *start = (T *)(*ptr);
+	*start = value;
+	*ptr = (char *)(start + 1);
+}
+
+template <typename T>
+T readFromPointer(char **ptr)
+{
+	T *value = (T *)(*ptr);
+	*ptr = (char *)(value + 1);
+	return *value;
+}
+
+// Note: A custom serialization function is only required
+//  for structs that contain a pointer of any kind
+
+__forceinline__ size_t playStateSize()
+{
+	return sizeof(PlayState) - sizeof(curandState *);
+}
+
+__forceinline__ size_t computeStateSize(int stackSize, int sequenceSize)
+{
+	return sizeof(TComputeState) -
+		   sizeof(PlayStackFrame *) -
+		   sizeof(UpgradeId *) +
+		   sizeof(PlayStackFrame) * stackSize +
+		   sizeof(UpgradeId) * sequenceSize;
+}
+
+char *serializeComputeState(TComputeState s, int stackSize, int sequenceSize)
+{
+	char *ptr = (char *)malloc(computeStateSize(stackSize, sequenceSize));
+	char *start = ptr;
+
+	char *serializedState = serializePlayState(s.init);
+	for (int i = 0; i < playStateSize(); i++)
+	{
+		writeToPointer(&ptr, serializedState[i]);
+	}
+
+	for (int i = 0; i < stackSize; i++)
+	{
+		writeToPointer<PlayStackFrame>(&ptr, s.stack[i]);
+	}
+
+	for (int i = 0; i < sequenceSize; i++)
+	{
+		writeToPointer<UpgradeId>(&ptr, s.sequence[i]);
+	}
+
+	return start;
+}
+
+char *serializePlayState(PlayState state)
+{
+	char *ptr = (char *)malloc(playStateSize());
+	char *start = ptr;
+
+	writeToPointer<UpgradeStats>(&ptr, state.stats);
+	writeToPointer<float>(&ptr, state.setbackChance);
+	writeToPointer<Money>(&ptr, state.money);
+
+	return start;
 }

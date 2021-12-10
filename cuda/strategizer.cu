@@ -114,13 +114,18 @@ __forceinline__ __host__ __device__ int iterativeReturn(PlayStackFrame *stack, i
 	return depth;
 }
 
-__host__ __device__ int playIterative(ComputeContext *c, PlayState play, PlayStackFrame *stack, UpgradeId *result, Depth startOffset)
-{
-	Depth depth = 0;
-	stack[depth].params.state = play;
+__host__ __device__ int playIterative(
+	ComputeContext *c,
+	PlayState play,
+	PlayStackFrame *stack,
+	UpgradeId *result,
+	Depth startOffset,
+	Depth* depth
+) {
+	stack[*depth].params.state = play;
 
 	//? To prevent crashes when the initial moneyValue is already larger than the goal
-	if (stack[depth].params.state.money >= (*c).moneyGoal) {
+	if (stack[*depth].params.state.money >= (*c).moneyGoal) {
 		return 0;
 	}
 
@@ -131,81 +136,81 @@ __host__ __device__ int playIterative(ComputeContext *c, PlayState play, PlaySta
 
 		if (
 			(*c).currentMinimum &&
-			stack[depth].params.problems >= *(*c).currentMinimum &&
+			stack[*depth].params.problems >= *(*c).currentMinimum &&
 			*(*c).currentMinimum > 0
 		) {
-			depth = iterativeReturn(
-				stack, depth,
-				stack[depth].params.problems + 9999
+			*depth = iterativeReturn(
+				stack, *depth,
+				stack[*depth].params.problems + 9999
 			);
 			continue;
 		}
 
-		if (stack[depth].params.state.money >= (*c).moneyGoal) {
-			depth = iterativeReturn(
-				stack, depth,
-				stack[depth].params.problems
+		if (stack[*depth].params.state.money >= (*c).moneyGoal) {
+			*depth = iterativeReturn(
+				stack, *depth,
+				stack[*depth].params.problems
 			);
 			continue;
 		}
 
-		if (stack[depth].branch == (*c).upgradesSize) {
-			result[startOffset + depth] = stack[depth].minTarget;
-			if (depth == 0) {
-				return stack[depth].currentMin;
+		if (stack[*depth].branch == (*c).upgradesSize) {
+			result[startOffset + *depth] = stack[*depth].minTarget;
+			if (*depth == 0) {
+				return stack[*depth].currentMin;
 			}
 
-			depth = iterativeReturn(
-				stack, depth,
-				stack[depth].currentMin
+			*depth = iterativeReturn(
+				stack, *depth,
+				stack[*depth].currentMin
 			);
 			continue;
 		}
 
-		if (depth == (*c).max) {
+		if (*depth == (*c).max) {
 			GoalResult res = playGoal(
 				(*c).data,
-				stack[depth].params.state,
+				stack[*depth].params.state,
 				(*c).moneyGoal,
-				stack[depth].params.upperMinimum
+				stack[*depth].params.upperMinimum
 			);
 
-			depth = iterativeReturn(
-				stack, depth,
-				stack[depth].params.problems + res.problems
+			*depth = iterativeReturn(
+				stack, *depth,
+				stack[*depth].params.problems + res.problems
 			);
 			continue;
 		}
 
 		if (getStat(
-			stack[depth].params.state.stats,
-			(*c).upgrades[stack[depth].branch]
+			stack[*depth].params.state.stats,
+			(*c).upgrades[stack[*depth].branch]
 		)+1 == MAX_LEVEL) {
-			depth = iterativeCall(stack, stack[depth].params, depth);
+			*depth = iterativeCall(stack, stack[*depth].params, *depth);
 			continue;
 		}
 
 		GoalResult res = playUpgrade(
-			(*c).data, stack[depth].params.state,
-			(*c).upgrades[stack[depth].branch],
-			stack[depth].params.upperMinimum
+			(*c).data, stack[*depth].params.state,
+			(*c).upgrades[stack[*depth].branch],
+			stack[*depth].params.upperMinimum
 		);
 
 		PlayState lowerState = {
 			incrementStat(
-				stack[depth].params.state.stats,
-				(*c).upgrades[stack[depth].branch]
+				stack[*depth].params.state.stats,
+				(*c).upgrades[stack[*depth].branch]
 			),
-			stack[depth].params.state.setbackChance,
+			stack[*depth].params.state.setbackChance,
 			res.newMoney,
-			stack[depth].params.state.randState
+			stack[*depth].params.state.randState
 		};
 
-		depth = iterativeCall(stack, {
+		*depth = iterativeCall(stack, {
 			lowerState,
-			stack[depth].params.problems + res.problems,
-			stack[depth].currentMin
-		}, depth);
+			stack[*depth].params.problems + res.problems,
+			stack[*depth].currentMin
+		}, *depth);
 	}
 }
 
@@ -288,21 +293,22 @@ PlayStackFrame* initializeStack(int lowerDepth, int upgradesSize) {
 	return stack;
 }
 
-__global__ void computeStrategy(int *progress, ComputeContext *c, TComputeStates *results, int rootSize, int depth)
+__global__ void computeStrategy(int *progress, ComputeContext *c, TComputeState *states, int rootSize, int offset)
 {
 	int index = threadIdx.x + blockIdx.x * blockDim.x;
 	if (index >= rootSize) {
 		return;
 	}
 
-	curand_init(1234, index, 0, results[index].init.randState);
+	curand_init(1234, index, 0, states[index].init.randState);
 	uint32_t problems = playIterative(
-		c, results[index].init,
-		results[index].stack,
-		results[index].sequence, depth
+		c, states[index].init,
+		states[index].stack,
+		states[index].sequence,
+		offset, states[index].depth
 	);
 
-	results[index].problems += problems;
+	states[index].problems += problems;
 
 	if (progress)
 		atomicAdd(progress, 1);
@@ -341,9 +347,9 @@ void deallocateContext(ComputeContext *rc) {
 	cudaFree(rc);
 }
 
-TComputeStates* initializeThreadStates(std::vector<Permutation> roots, MaxUpgradeLevel upgrades, ComputeOptions opts) {
-	TComputeStates *results;
-	cudaMallocManaged(&results, sizeof(TComputeStates) * roots.size());
+TComputeState* initializeThreadStates(std::vector<Permutation> roots, MaxUpgradeLevel upgrades, ComputeOptions opts) {
+	TComputeState *results;
+	cudaMallocManaged(&results, sizeof(TComputeState) * roots.size());
 
 	for (int i = 0; i < roots.size(); i++) {
 		UpgradeId *sequence = initializeSequence(roots[i].sequence, opts.maxDepth);
@@ -352,11 +358,15 @@ TComputeStates* initializeThreadStates(std::vector<Permutation> roots, MaxUpgrad
 		curandState *gen = NULL;
 		cudaMallocManaged(&gen, sizeof(curandState));
 
+		Depth* depth;
+		cudaMallocManaged(&depth, sizeof(Depth));
+
 		roots[i].play.randState = gen;
-		results[i] = TComputeStates{
+		results[i] = TComputeState{
 			roots[i].play,
-			stack,
 			roots[i].problems,
+			depth,
+			stack,
 			sequence
 		};
 	}
@@ -368,7 +378,7 @@ ProblemCount compute(std::vector<UpgradeId> upgrades, Money moneyGoal, UpgradeId
 	// --> Initialize Roots / Compute States
 	ComputeContext *rc = initializeContext(upgrades, moneyGoal, opts);
 	std::vector<Permutation> roots = getRoots((*rc).data, upgrades, opts.syncDepth);
-	TComputeStates* states = initializeThreadStates(roots, upgrades.size(), opts);
+	TComputeState* states = initializeThreadStates(roots, upgrades.size(), opts);
 	printf("Memory Allocation Succeeded\n");
 
 	int threadBlocks = ceil(float(roots.size()) / float(BLOCK_SIZE));

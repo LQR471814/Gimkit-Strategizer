@@ -8,6 +8,12 @@ class SerializableArray {
 		int size;
 };
 
+struct BasicStruct {
+	uint8_t b1;
+	float b2;
+	size_t b3;
+};
+
 struct FancyStruct {
 	uint8_t a1;
 	float a2;
@@ -30,12 +36,20 @@ T readFromPointer(char** ptr) {
 }
 
 char* serializeFancyStruct(FancyStruct s) {
-	char *ptr = (char*)malloc(sizeof(FancyStruct) - sizeof(uint32_t*));
+	char *ptr = (char*)malloc(
+		sizeof(uint8_t) +
+		sizeof(float) +
+		sizeof(size_t) +
+		sizeof(uint32_t) * s.a3Size
+	);
 	char *start = ptr;
 
 	writeToPointer<uint8_t>(&ptr, s.a1);
 	writeToPointer<float>(&ptr, s.a2);
 	writeToPointer<size_t>(&ptr, s.a3Size);
+	for (int i = 0; i < s.a3Size; i++) {
+		writeToPointer<uint32_t>(&ptr, s.a3[i]);
+	}
 
 	return start;
 }
@@ -46,6 +60,11 @@ FancyStruct deserializeFancyStruct(char* ptr) {
 	result.a1 = readFromPointer<uint8_t>(&ptr);
 	result.a2 = readFromPointer<float>(&ptr);
 	result.a3Size = readFromPointer<size_t>(&ptr);
+
+	result.a3 = (uint32_t*)malloc(sizeof(uint32_t) * result.a3Size);
+	for (int i = 0; i < result.a3Size; i ++) {
+		result.a3[i] = readFromPointer<uint32_t>(&ptr);
+	}
 
 	return result;
 }
@@ -91,10 +110,20 @@ void unserialize() {
 	fclose(pFile);
 }
 
-int main() {
+void serializeBasic() {
+	BasicStruct basic = {(uint8_t)4, (float)2, (size_t)20};
+	char *ptr = (char*)malloc(sizeof(BasicStruct));
+	char *start = ptr;
+	writeToPointer<BasicStruct>(&ptr, basic);
+	BasicStruct result = readFromPointer<BasicStruct>(&start);
+
+	printf("B1 %d B2 %f Size %d\n", result.b1, result.b2, result.b3);
+}
+
+void serializeFancy() {
 	uint32_t* a = (uint32_t*)malloc(sizeof(uint32_t) * 10);
 	for (int i = 0; i < 10; i++) {
-		a[i] = i;
+		a[i] = 7;
 	}
 
 	FancyStruct s = {(uint8_t)6, (float)9, a, (size_t)10};
@@ -107,8 +136,19 @@ int main() {
 		afterDeserialization.a3Size
 	);
 
+	for (int i = 0; i < 10; i++) {
+		printf(" %d", afterDeserialization.a3[i]);
+	}
+
+	printf("\n");
+}
+
+int main() {
 	// serialize<FancyStruct>(array, 10);
 	// unserialize<FancyStruct>();
+
+	serializeBasic();
+	serializeFancy();
 
 	return 0;
 }
