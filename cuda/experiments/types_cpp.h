@@ -54,7 +54,7 @@ struct ComputeContext
 	int upgradesSize;
 };
 
-struct TComputeState
+struct ComputeState
 {
 	struct PlayState init;
 	int problems;

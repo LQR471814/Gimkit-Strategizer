@@ -1,6 +1,7 @@
 #include <curand.h>
 #include <curand_kernel.h>
 
+#include <chrono>
 #include <iostream>
 #include <stdlib.h>
 #include <math.h>
@@ -85,53 +86,40 @@ struct std::vector<Permutation> permuteRecursive(PermuteContext *c, PermuteState
 	return permutes;
 }
 
-__host__ __device__ void printPlayStack(PlayStackFrame *stack, int depth, int resultLength) {
-	printf("Depth %d Branch %d\n", depth, stack[depth].branch);
-	printf(" Params\n");
-	printf(" -> Problems %d\n", stack[depth].params.problems);
-	printf(" -> ");
-	printPlayState(stack[depth].params.state);
-	printf(" -> Current Min %lld Target %d\n", stack[depth].currentMin, stack[depth].minTarget);
+__forceinline__ __host__ __device__ void iterativeCall(PlayStackFrame *stack, PlayStackParameters params, Depth* depth)
+{
+	(*depth)++;
+	stack[*depth].branch = 0;
+	stack[*depth].params = params;
 }
 
-__forceinline__ __host__ __device__ int iterativeCall(PlayStackFrame *stack, PlayStackParameters params, int depth)
+__forceinline__ __host__ __device__ void iterativeReturn(PlayStackFrame *stack, Depth* depth, int value)
 {
-	depth++;
-	stack[depth].branch = 0;
-	stack[depth].params = params;
-	return depth;
-}
-
-__forceinline__ __host__ __device__ int iterativeReturn(PlayStackFrame *stack, int depth, int value)
-{
-	depth--;
-	if (value < stack[depth].currentMin || stack[depth].currentMin < 0) {
-		stack[depth].currentMin = value;
-		stack[depth].minTarget = stack[depth].branch;
+	(*depth)--;
+	if (value < stack[*depth].currentMin || stack[*depth].currentMin < 0) {
+		stack[*depth].currentMin = value;
+		stack[*depth].minTarget = stack[*depth].branch;
 	}
 
-	stack[depth].branch++;
-	return depth;
+	stack[*depth].branch++;
 }
 
 __host__ __device__ int playIterative(
 	ComputeContext *c,
-	PlayState play,
-	PlayStackFrame *stack,
-	UpgradeId *result,
-	Depth startOffset,
-	Depth* depth
+	ComputeState state,
+	Depth startOffset
 ) {
-	stack[*depth].params.state = play;
+	PlayStackFrame *stack = state.stack;
+	Depth *depth = state.depth;
 
 	//? To prevent crashes when the initial moneyValue is already larger than the goal
 	if (stack[*depth].params.state.money >= (*c).moneyGoal) {
-		return 0;
+		return stack[*depth].params.problems;
 	}
 
 	while (true) {
-		if (*(*c).running == 1) {
-			return 0;
+		if (*(*c).cancel == 1) {
+			return state.problems;
 		}
 
 		if (
@@ -139,29 +127,29 @@ __host__ __device__ int playIterative(
 			stack[*depth].params.problems >= *(*c).currentMinimum &&
 			*(*c).currentMinimum > 0
 		) {
-			*depth = iterativeReturn(
-				stack, *depth,
+			iterativeReturn(
+				stack, depth,
 				stack[*depth].params.problems + 9999
 			);
 			continue;
 		}
 
 		if (stack[*depth].params.state.money >= (*c).moneyGoal) {
-			*depth = iterativeReturn(
-				stack, *depth,
+			iterativeReturn(
+				stack, depth,
 				stack[*depth].params.problems
 			);
 			continue;
 		}
 
 		if (stack[*depth].branch == (*c).upgradesSize) {
-			result[startOffset + *depth] = stack[*depth].minTarget;
+			state.sequence[startOffset + *depth] = stack[*depth].minTarget;
 			if (*depth == 0) {
 				return stack[*depth].currentMin;
 			}
 
-			*depth = iterativeReturn(
-				stack, *depth,
+			iterativeReturn(
+				stack, depth,
 				stack[*depth].currentMin
 			);
 			continue;
@@ -175,8 +163,8 @@ __host__ __device__ int playIterative(
 				stack[*depth].params.upperMinimum
 			);
 
-			*depth = iterativeReturn(
-				stack, *depth,
+			iterativeReturn(
+				stack, depth,
 				stack[*depth].params.problems + res.problems
 			);
 			continue;
@@ -186,7 +174,7 @@ __host__ __device__ int playIterative(
 			stack[*depth].params.state.stats,
 			(*c).upgrades[stack[*depth].branch]
 		)+1 == MAX_LEVEL) {
-			*depth = iterativeCall(stack, stack[*depth].params, *depth);
+			iterativeCall(stack, stack[*depth].params, depth);
 			continue;
 		}
 
@@ -203,25 +191,26 @@ __host__ __device__ int playIterative(
 			),
 			stack[*depth].params.state.setbackChance,
 			res.newMoney,
-			stack[*depth].params.state.randState
 		};
 
-		*depth = iterativeCall(stack, {
+		iterativeCall(stack, {
 			lowerState,
 			stack[*depth].params.problems + res.problems,
 			stack[*depth].currentMin
-		}, *depth);
+		}, depth);
 	}
 }
 
 template <typename T>
-void assignVecToPointer(std::vector<T> vec, T *result, uint64_t size) {
+void assignVecToPointer(std::vector<T> vec, T *result, uint64_t size)
+{
 	for (int i = 0; i < size; i++) {
 		result[i] = vec[i];
 	}
 }
 
-UpgradeLevel* allocUpgradeLevels(std::vector<UpgradeLevel> levels) {
+UpgradeLevel* allocUpgradeLevels(std::vector<UpgradeLevel> levels)
+{
 	UpgradeLevel *result;
 	cudaMallocManaged(&result, sizeof(UpgradeLevel) * levels.size());
 	for (int i = 0; i < levels.size(); i++) {
@@ -230,18 +219,22 @@ UpgradeLevel* allocUpgradeLevels(std::vector<UpgradeLevel> levels) {
 	return result;
 }
 
-std::vector<Permutation> getRoots(UpgradeLevel **data, std::vector<UpgradeId> upgrades, Depth syncDepth) {
+std::vector<Permutation> getRoots(
+	UpgradeLevel **data,
+	std::vector<UpgradeId> upgrades,
+	Depth syncDepth
+) {
 	PermuteContext c = {data, upgrades, syncDepth};
 	PermuteState r = {
 		UpgradeStats{0, 0, 0, 0}, // play
-		0, 0, NULL,      		  // play
-		std::vector<UpgradeId>{},		  // sequence
+		0, 0, std::vector<UpgradeId>{},		  // sequence
 	};
 
 	return permuteRecursive(&c, r, 0);
 }
 
-struct UpgradeLevel** initializeIndex() {
+struct UpgradeLevel** initializeIndex()
+{
 	UpgradeLevel **data;
 	cudaMallocManaged(&data, sizeof(UpgradeLevel) * UPGRADE_COUNT);
 
@@ -253,13 +246,15 @@ struct UpgradeLevel** initializeIndex() {
 	return data;
 }
 
-void deallocateIndex(UpgradeLevel **data) {
+void deallocateIndex(UpgradeLevel **data)
+{
 	for (int i = 0; i < UPGRADE_COUNT; i++)
 		cudaFree(data[i]);
 	cudaFree(data);
 }
 
-UpgradeId* initializeSequence(std::vector<UpgradeId> init, int targetSize) {
+UpgradeId* initializeSequence(std::vector<UpgradeId> init, int targetSize)
+{
 	UpgradeId *sequence;
 	cudaMallocManaged(&sequence, sizeof(int) * targetSize);
 
@@ -273,7 +268,8 @@ UpgradeId* initializeSequence(std::vector<UpgradeId> init, int targetSize) {
 	return sequence;
 }
 
-UpgradeId* initializeUpgrades(std::vector<UpgradeId> init) {
+UpgradeId* initializeUpgrades(std::vector<UpgradeId> init)
+{
 	UpgradeId *upgrades;
 	cudaMallocManaged(&upgrades, sizeof(UpgradeId) * init.size());
 	for (int i = 0; i < init.size(); i++) {
@@ -283,7 +279,8 @@ UpgradeId* initializeUpgrades(std::vector<UpgradeId> init) {
 	return upgrades;
 }
 
-PlayStackFrame* initializeStack(int lowerDepth, int upgradesSize) {
+PlayStackFrame* initializeStack(int lowerDepth, int upgradesSize)
+{
 	PlayStackFrame *stack;
 	cudaMallocManaged(&stack, sizeof(PlayStackFrame) * (lowerDepth+1));
 	for (int i = 0; i < lowerDepth+1; i++) {
@@ -293,28 +290,30 @@ PlayStackFrame* initializeStack(int lowerDepth, int upgradesSize) {
 	return stack;
 }
 
-__global__ void computeStrategy(int *progress, ComputeContext *c, TComputeState *states, int rootSize, int offset)
-{
+__global__ void computeStrategy(
+	uint32_t *progress,
+	ComputeContext *c,
+	ComputeState *states,
+	int rootSize,
+	int offset
+) {
 	int index = threadIdx.x + blockIdx.x * blockDim.x;
 	if (index >= rootSize) {
 		return;
 	}
 
-	curand_init(1234, index, 0, states[index].init.randState);
-	uint32_t problems = playIterative(
-		c, states[index].init,
-		states[index].stack,
-		states[index].sequence,
-		offset, states[index].depth
-	);
-
-	states[index].problems += problems;
+	uint32_t problems = playIterative(c, states[index], offset);
+	states[index].problems = problems;
 
 	if (progress)
 		atomicAdd(progress, 1);
 }
 
-ComputeContext* initializeContext(std::vector<UpgradeId> upgrades, Money moneygoal, ComputeOptions options) {
+ComputeContext* initializeContext(
+	std::vector<UpgradeId> upgrades,
+	Money moneygoal,
+	ComputeOptions options
+) {
 	struct UpgradeLevel **data = initializeIndex();
 	UpgradeId *recurseUpgrades = initializeUpgrades(upgrades);
 
@@ -347,22 +346,23 @@ void deallocateContext(ComputeContext *rc) {
 	cudaFree(rc);
 }
 
-TComputeState* initializeThreadStates(std::vector<Permutation> roots, MaxUpgradeLevel upgrades, ComputeOptions opts) {
-	TComputeState *results;
-	cudaMallocManaged(&results, sizeof(TComputeState) * roots.size());
+ComputeState* initializeThreadStates(
+	std::vector<Permutation> roots,
+	MaxUpgradeLevel upgrades,
+	ComputeOptions opts
+) {
+	ComputeState *results;
+	cudaMallocManaged(&results, sizeof(ComputeState) * roots.size());
 
 	for (int i = 0; i < roots.size(); i++) {
 		UpgradeId *sequence = initializeSequence(roots[i].sequence, opts.maxDepth);
 		PlayStackFrame *stack = initializeStack(opts.maxDepth - opts.syncDepth, upgrades);
-
-		curandState *gen = NULL;
-		cudaMallocManaged(&gen, sizeof(curandState));
+		stack[0].params = {roots[i].play, roots[i].problems, -1};
 
 		Depth* depth;
 		cudaMallocManaged(&depth, sizeof(Depth));
 
-		roots[i].play.randState = gen;
-		results[i] = TComputeState{
+		results[i] = ComputeState{
 			roots[i].play,
 			roots[i].problems,
 			depth,
@@ -374,11 +374,48 @@ TComputeState* initializeThreadStates(std::vector<Permutation> roots, MaxUpgrade
 	return results;
 }
 
-ProblemCount compute(std::vector<UpgradeId> upgrades, Money moneyGoal, UpgradeId *output, ComputeOptions opts) {
+ComputeState compute(
+	std::vector<UpgradeId> upgrades,
+	Money moneyGoal,
+	ComputeOptions opts
+) {
 	// --> Initialize Roots / Compute States
 	ComputeContext *rc = initializeContext(upgrades, moneyGoal, opts);
 	std::vector<Permutation> roots = getRoots((*rc).data, upgrades, opts.syncDepth);
-	TComputeState* states = initializeThreadStates(roots, upgrades.size(), opts);
+	ComputeState* states;
+
+	if (!opts.recoverFrom.empty()) {
+		FILE *pFile;
+		pFile = fopen(opts.recoverFrom.c_str(), "rb");
+		if (pFile == NULL) {
+			fputs("File error", stderr);
+			exit(1);
+		}
+
+		size_t stateSize = computeStateSize(
+			opts.maxDepth - opts.syncDepth,
+			opts.maxDepth
+		);
+
+		cudaMallocManaged(&states, roots.size() * sizeof(ComputeState));
+
+		for (int i = 0; i < roots.size(); i++) {
+			char* buff = (char*)malloc(stateSize);
+			fread(buff, sizeof(char), stateSize, pFile);
+			states[i] = unserializeComputeState(
+				buff,
+				opts.maxDepth - opts.syncDepth,
+				opts.maxDepth
+			);
+			states[i].problems = roots[i].problems;
+			free(buff);
+		}
+
+		fclose(pFile);
+	} else {
+		states = initializeThreadStates(roots, upgrades.size(), opts);
+	}
+
 	printf("Memory Allocation Succeeded\n");
 
 	int threadBlocks = ceil(float(roots.size()) / float(BLOCK_SIZE));
@@ -389,28 +426,43 @@ ProblemCount compute(std::vector<UpgradeId> upgrades, Money moneyGoal, UpgradeId
 	printGPUInfo();
 
 	cudaEvent_t start, stop;
-	uint8_t *running = createHostPointer<uint8_t>(0);
-	uint8_t *d_running = createHostPointer<uint8_t>(0);
 
-	rc->running = d_running;
+	uint8_t *cancel = createHostPointer<uint8_t>(0);
+	uint8_t *d_cancel = createPinnedPointer<uint8_t>(cancel);
 
-	int *progress = createHostPointer<int>(0);
-	int *d_progress = createPinnedPointer<int>(progress);
+	rc->cancel = d_cancel;
+
+	uint32_t *progress = createHostPointer<uint32_t>(0);
+	uint32_t *d_progress = createPinnedPointer<uint32_t>(progress);
 
 	cudaEventCreate(&start);
 	cudaEventCreate(&stop);
 	cudaEventRecord(start);
+
+	std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
 
 	// --> Run
 	computeStrategy<<<threadBlocks, BLOCK_SIZE>>>(
 		d_progress, rc, states, roots.size(), opts.syncDepth
 	);
 
+	printf("Computing...\n");
+
 	// --> Report progress
 	cudaEventRecord(stop);
 	int bufProgress = 0;
 	int trueProgress = 0;
 	do {
+		std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
+		if (
+			opts.timeout > 0 && std::chrono::duration_cast<std::chrono::seconds>(now - begin)
+				>= opts.timeout * std::chrono::seconds{1}
+		) {
+			*cancel = 1;
+			printf("Aborting and saving...\n");
+			break;
+		}
+
 		cudaEventQuery(stop);
 		trueProgress = *progress;
 		if (trueProgress - bufProgress >= roots.size() * opts.loggingFidelity) {
@@ -421,40 +473,111 @@ ProblemCount compute(std::vector<UpgradeId> upgrades, Money moneyGoal, UpgradeId
 
 	// --> Report run performance
 	cudaEventSynchronize(stop);
-	printf("\nCompute Status (ignore if there is no visible error) %s\n", cudaGetErrorString(cudaGetLastError()));
+	printf(
+		"\nCompute Status (ignore if there is no visible error) %s\n",
+		cudaGetErrorString(cudaGetLastError())
+	);
 
 	float *elapsed = new float;
 	cudaEventElapsedTime(elapsed, start, stop);
 	printf("Completed in %fs\n", (*elapsed) / 1000);
 	delete elapsed;
 
+	// --> Initialize Serialized States
+	char** serializedStates;
+	if (*cancel == 1) {
+		serializedStates = (char**)malloc(sizeof(char*) * roots.size());
+	}
+
 	// --> Sort results
+	ComputeState minCompState = {};
+
 	int min = -1;
 	for (int i = 0; i < roots.size(); i++) {
-		if (min < 0 || states[i].problems < min) {
+		if (*cancel == 1) { // --> Serialize States
+			serializedStates[i] = serializeComputeState(
+				states[i],
+				opts.maxDepth - opts.syncDepth,
+				opts.maxDepth
+			);
+		} else if ((min < 0 || states[i].problems < min)) {
 			min = states[i].problems;
-			for (int x = 0; x < opts.maxDepth; x++) {
-				output[x] = states[i].sequence[x];
+			if (min != -1) {
+				cudaFree(minCompState.stack);
+				cudaFree(minCompState.sequence);
 			}
+			minCompState = copyComputeState(
+				states[i],
+				opts.maxDepth - opts.syncDepth,
+				opts.maxDepth
+			);
 		}
 
-		cudaFree(states[i].init.randState);
 		cudaFree(states[i].sequence);
 		cudaFree(states[i].stack);
 	}
 
+	// --> Write state (if canceled)
+	if (*cancel == 1) {
+		FILE *pFile;
+		pFile = fopen(opts.saveFilename.c_str(), "wb");
+
+		size_t stateSize = computeStateSize(
+			opts.maxDepth - opts.syncDepth,
+			opts.maxDepth
+		);
+
+		for (int i = 0; i < roots.size(); i++) {
+			fwrite(
+				serializedStates[i], sizeof(char),
+				stateSize, pFile
+			);
+			free(serializedStates[i]);
+		}
+
+		fclose(pFile);
+		free(serializedStates);
+	}
+
 	// --> Cleanup
 	cudaFree(states);
+
+	cudaFree(cancel);
+	cudaFree(d_cancel);
+	cudaFree(progress);
+	cudaFree(d_progress);
+
 	deallocateContext(rc);
-	return min;
+	return minCompState;
 }
 
 int main(int argc, char** argv)
 {
 	CLI::App app{"A program that simulates many, many gimkit games"};
 
+	std::string saveFilename = "serialized.bin";
+	app.add_option<std::string>(
+		"-o,--save-filename",
+		saveFilename,
+		"The filename to save progress to after a timeout"
+	);
+
+	std::string recoverFrom = "";
+	app.add_option<std::string>(
+		"-f,--recover-from",
+		recoverFrom,
+		"Saved progress from computing beforehand"
+	);
+
+	int executionTimeout = -1;
+	app.add_option<int>(
+		"-t,--timeout",
+		executionTimeout,
+		"When the program should save and exit in seconds (Default: never)"
+	);
+
 	Money moneyGoal = 1000000;
-	app.add_option<Money, double>(
+	app.add_option<Money>(
 		"-g,--goal",
 		moneyGoal,
 		"Amount of money to reach before stopping"
@@ -492,18 +615,20 @@ int main(int argc, char** argv)
 	ComputeOptions opts = {
 		syncDepth,
 		maxDepth,
+		executionTimeout,
+		saveFilename,
+		recoverFrom,
 		loggingFidelity,
 	};
 
-	Minimum problems = 0;
-	UpgradeId *result = new UpgradeId[maxDepth];
-	problems = compute(upgrades, moneyGoal, result, opts);
+	ComputeState result = compute(upgrades, moneyGoal, opts);
 
 	printf("========== RESULTS ==========\n");
-	printf("Minimum Problems: %lld\n", problems);
+	// printComputeState(result, maxDepth - syncDepth, maxDepth);
+	printf("Minimum Problems: %u\n", result.problems);
 	printf("Sequence Required: ");
 	for (int i = 0; i < maxDepth; i++) {
-		printf("%d ", result[i]);
+		printf("%d ", result.sequence[i]);
 	}
 
 	return 0;

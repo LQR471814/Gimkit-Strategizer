@@ -1,4 +1,3 @@
-#include <curand.h>
 #include <vector>
 
 typedef double Money;
@@ -100,7 +99,6 @@ struct PlayState
 	struct UpgradeStats stats = {};
 	float setbackChance = 0;
 	Money money = 0;
-	curandState *randState = NULL;
 };
 
 struct Permutation
@@ -133,7 +131,7 @@ struct ComputeContext
 	MaxUpgradeLevel upgradesSize;
 
 	Minimum *currentMinimum;
-	uint8_t *running; //? 0 - running : 1 - stop
+	uint8_t *cancel; //0 - running | 1 - stop
 };
 
 struct PlayStackParameters
@@ -151,7 +149,7 @@ struct PlayStackFrame
 	UpgradeId minTarget = -1;
 };
 
-struct TComputeState
+struct ComputeState
 {
 	struct PlayState init;
 	ProblemCount problems;
@@ -165,8 +163,34 @@ struct ComputeOptions
 	Depth syncDepth;
 	Depth maxDepth;
 
+	int timeout;
+	std::string saveFilename;
+	std::string recoverFrom;
 	float loggingFidelity;
 };
+
+ComputeState copyComputeState(
+	ComputeState original,
+	int stackSize,
+	int sequenceSize
+) {
+	ComputeState copied = {original.init, original.problems};
+
+	cudaMallocManaged(&copied.depth, sizeof(Depth));
+	*copied.depth = *original.depth;
+
+	cudaMallocManaged(&copied.stack, sizeof(PlayStackFrame) * stackSize);
+	for (int i = 0; i < stackSize; i++) {
+		copied.stack[i] = original.stack[i];
+	}
+
+	cudaMallocManaged(&copied.sequence, sizeof(UpgradeId) * sequenceSize);
+	for (int i = 0; i < sequenceSize; i++) {
+		copied.sequence[i] = original.sequence[i];
+	}
+
+	return copied;
+}
 
 __host__ __device__ void printPlayState(PlayState p)
 {
@@ -177,6 +201,33 @@ __host__ __device__ void printPlayState(PlayState p)
 		p.stats.streakBonus,
 		p.stats.multiplier,
 		p.stats.insurance);
+}
+
+__host__ __device__ void printPlayStack(PlayStackFrame *stack, Depth depth)
+{
+	printf("Depth %d Branch %d\n", depth, stack[depth].branch);
+	printf(" Params\n");
+	printf(" -> Problems %d\n", stack[depth].params.problems);
+	printf(" -> ");
+	printPlayState(stack[depth].params.state);
+	printf(" -> Current Min %lld Target %d\n", stack[depth].currentMin, stack[depth].minTarget);
+}
+
+__host__ __device__ void printComputeState(ComputeState state, int stackSize, int sequenceSize) {
+	printPlayState(state.init);
+
+	printf("Starting depth: %u\n", *state.depth);
+	printPlayState(state.init);
+
+	for (int i = 0; i < sequenceSize; i++) {
+		printf("%d ", state.sequence[i]);
+	}
+
+	printf("\n");
+
+	for (int i = 0; i < stackSize; i++) {
+		printPlayStack(state.stack, i);
+	}
 }
 
 __forceinline__ __host__ __device__ UpgradeStats incrementStat(UpgradeStats s, int id)
@@ -238,28 +289,31 @@ T readFromPointer(char **ptr)
 
 __forceinline__ size_t playStateSize()
 {
-	return sizeof(PlayState) - sizeof(curandState *);
+	return sizeof(PlayState);
 }
 
 __forceinline__ size_t computeStateSize(int stackSize, int sequenceSize)
 {
-	return sizeof(TComputeState) -
-		   sizeof(PlayStackFrame *) -
-		   sizeof(UpgradeId *) +
+	return sizeof(PlayState) +
+		   sizeof(Depth) +
 		   sizeof(PlayStackFrame) * stackSize +
 		   sizeof(UpgradeId) * sequenceSize;
 }
 
-char *serializeComputeState(TComputeState s, int stackSize, int sequenceSize)
+void serializePlayState(PlayState state, char **ptr)
+{
+	writeToPointer<UpgradeStats>(ptr, state.stats);
+	writeToPointer<float>(ptr, state.setbackChance);
+	writeToPointer<Money>(ptr, state.money);
+}
+
+char *serializeComputeState(ComputeState s, int stackSize, int sequenceSize)
 {
 	char *ptr = (char *)malloc(computeStateSize(stackSize, sequenceSize));
 	char *start = ptr;
 
-	char *serializedState = serializePlayState(s.init);
-	for (int i = 0; i < playStateSize(); i++)
-	{
-		writeToPointer(&ptr, serializedState[i]);
-	}
+	serializePlayState(s.init, &ptr);
+	writeToPointer<Depth>(&ptr, *s.depth);
 
 	for (int i = 0; i < stackSize; i++)
 	{
@@ -274,14 +328,38 @@ char *serializeComputeState(TComputeState s, int stackSize, int sequenceSize)
 	return start;
 }
 
-char *serializePlayState(PlayState state)
+PlayState unserializePlayState(char** ptr)
 {
-	char *ptr = (char *)malloc(playStateSize());
-	char *start = ptr;
+	PlayState state = {};
 
-	writeToPointer<UpgradeStats>(&ptr, state.stats);
-	writeToPointer<float>(&ptr, state.setbackChance);
-	writeToPointer<Money>(&ptr, state.money);
+	state.stats = readFromPointer<UpgradeStats>(ptr);
+	state.setbackChance = readFromPointer<float>(ptr);
+	state.money = readFromPointer<Money>(ptr);
 
-	return start;
+	return state;
+}
+
+ComputeState unserializeComputeState(
+	char* ptr, int stackSize, int sequenceSize
+) {
+	ComputeState state = {};
+
+	cudaMallocManaged(&state.depth, sizeof(Depth));
+	cudaMallocManaged(&state.stack, sizeof(PlayStackFrame) * stackSize);
+	cudaMallocManaged(&state.sequence, sizeof(UpgradeId) * sequenceSize);
+
+	state.init = unserializePlayState(&ptr);
+	*state.depth = readFromPointer<Depth>(&ptr);
+
+	for (int i = 0; i < stackSize; i++)
+	{
+		state.stack[i] = readFromPointer<PlayStackFrame>(&ptr);
+	}
+
+	for (int i = 0; i < sequenceSize; i++)
+	{
+		state.sequence[i] = readFromPointer<UpgradeId>(&ptr);
+	}
+
+	return state;
 }

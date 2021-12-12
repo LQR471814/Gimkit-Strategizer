@@ -70,7 +70,7 @@ FancyStruct deserializeFancyStruct(char* ptr) {
 }
 
 template <typename T>
-void serialize(T *array, int size) {
+void writeFile(T *array, int size) {
 	FILE *pFile;
 	pFile = fopen("serialized.bin", "wb");
 	fwrite(array, sizeof(T), size, pFile);
@@ -78,7 +78,7 @@ void serialize(T *array, int size) {
 }
 
 template <typename T>
-void unserialize() {
+void readFile() {
 	FILE *pFile;
 	pFile = fopen("serialized.bin", "rb");
 	if (pFile == NULL) {
