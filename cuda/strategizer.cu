@@ -392,6 +392,10 @@ ComputeState compute(
 			exit(1);
 		}
 
+		char* b = (char*)malloc(sizeof(Minimum));
+		fread(b, sizeof(Minimum), 1, pFile);
+		*(rc->currentMinimum) = readFromPointer<Minimum>(&b);
+
 		size_t stateSize = computeStateSize(
 			opts.maxDepth - opts.syncDepth,
 			opts.maxDepth
@@ -466,8 +470,8 @@ ComputeState compute(
 		cudaEventQuery(stop);
 		trueProgress = *progress;
 		if (trueProgress - bufProgress >= roots.size() * opts.loggingFidelity) {
-			printf("Progress %d / %zd\n", bufProgress, roots.size());
 			bufProgress = trueProgress;
+			printf("Progress %d / %zd\n", bufProgress, roots.size());
 		}
 	} while (trueProgress < roots.size());
 
@@ -526,6 +530,8 @@ ComputeState compute(
 			opts.maxDepth - opts.syncDepth,
 			opts.maxDepth
 		);
+
+		fwrite(rc->currentMinimum, sizeof(Minimum), 1, pFile);
 
 		for (int i = 0; i < roots.size(); i++) {
 			fwrite(
