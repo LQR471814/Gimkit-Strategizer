@@ -163,7 +163,7 @@ struct ComputeOptions
 	Depth syncDepth;
 	Depth maxDepth;
 
-	int timeout;
+	uint64_t timeout;
 	std::string saveFilename;
 	std::string recoverFrom;
 	float loggingFidelity;
@@ -210,7 +210,7 @@ __host__ __device__ void printPlayStack(PlayStackFrame *stack, Depth depth)
 	printf(" -> Problems %d\n", stack[depth].params.problems);
 	printf(" -> ");
 	printPlayState(stack[depth].params.state);
-	printf(" -> Current Min %lld Target %d\n", stack[depth].currentMin, stack[depth].minTarget);
+	printf(" -> Current Min %ld Target %d\n", stack[depth].currentMin, stack[depth].minTarget);
 }
 
 __host__ __device__ void printComputeState(ComputeState state, int stackSize, int sequenceSize) {

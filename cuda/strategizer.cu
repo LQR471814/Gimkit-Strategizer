@@ -575,8 +575,8 @@ int main(int argc, char** argv)
 		"Saved progress from computing beforehand"
 	);
 
-	int executionTimeout = -1;
-	app.add_option<int>(
+	uint64_t executionTimeout = 0;
+	app.add_option<uint64_t>(
 		"-t,--timeout",
 		executionTimeout,
 		"When the program should save and exit in seconds (Default: never)"
@@ -636,6 +636,7 @@ int main(int argc, char** argv)
 	for (int i = 0; i < maxDepth; i++) {
 		printf("%d ", result.sequence[i]);
 	}
+	printf("\n");
 
 	return 0;
 }
