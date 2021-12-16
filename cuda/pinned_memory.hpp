@@ -2,7 +2,7 @@ template <typename T>
 T* createHostPointer(T defaultValue) {
 	T* host;
 	cudaMallocHost(&host, sizeof(T));
-	cudaHostRegister(host, sizeof(T), 0);
+	cudaHostRegister(host, sizeof(T), cudaHostRegisterDefault);
 	*host = defaultValue;
 	return host;
 }

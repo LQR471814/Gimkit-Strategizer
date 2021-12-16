@@ -373,6 +373,7 @@ ComputeState compute(
 	// --> Initialize Roots / Compute States
 	ComputeContext rc = initializeContext(upgrades, moneyGoal, opts);
 	std::vector<Permutation> roots = getRoots(rc.data, upgrades, opts.syncDepth);
+	uint32_t rootsSize = roots.size();
 	ComputeState* states;
 
 	if (!opts.recoverFrom.empty()) {
@@ -392,9 +393,9 @@ ComputeState compute(
 			opts.maxDepth
 		);
 
-		cudaMallocManaged(&states, roots.size() * sizeof(ComputeState));
+		cudaMallocManaged(&states, rootsSize * sizeof(ComputeState));
 
-		for (int i = 0; i < roots.size(); i++) {
+		for (int i = 0; i < rootsSize; i++) {
 			char* buff = (char*)malloc(stateSize);
 			fread(buff, sizeof(char), stateSize, pFile);
 			states[i] = unserializeComputeState(
@@ -413,9 +414,9 @@ ComputeState compute(
 
 	printf("Memory Allocation Succeeded\n");
 
-	int threadBlocks = ceil(float(roots.size()) / float(BLOCK_SIZE));
+	uint32_t threadBlocks = ceil(float(rootsSize) / float(BLOCK_SIZE));
 	printf("Blocksize %d\n", BLOCK_SIZE);
-	printf("Roots %zd Blocks %d\n", roots.size(), threadBlocks);
+	printf("Roots %u Blocks %d\n", rootsSize, threadBlocks);
 
 	// --> Initialize progress and gpu compute control
 	printGPUInfo();
@@ -438,15 +439,15 @@ ComputeState compute(
 
 	// --> Run
 	computeStrategy<<<threadBlocks, BLOCK_SIZE>>>(
-		d_progress, rc, states, roots.size(), opts.syncDepth
+		d_progress, rc, states, rootsSize, opts.syncDepth
 	);
 
 	printf("Computing...\n");
 
 	// --> Report progress
 	cudaEventRecord(stop);
-	int bufProgress = 0;
-	int trueProgress = 0;
+	uint32_t bufProgress = 0;
+	uint32_t trueProgress = 0;
 
 	SignalContext signalContext = initializeSignalListener(ABORT_SIGNAL_PORT, 1);
 	printf("Listening to abort signal on port %u\n", ABORT_SIGNAL_PORT);
@@ -470,11 +471,11 @@ ComputeState compute(
 
 		cudaEventQuery(stop);
 		trueProgress = *progress;
-		if (trueProgress - bufProgress >= roots.size() * opts.loggingFidelity) {
+		if (trueProgress - bufProgress >= rootsSize * opts.loggingFidelity) {
 			bufProgress = trueProgress;
-			printf("Progress %d / %zd\n", bufProgress, roots.size());
+			printf("Progress %u / %u\n", bufProgress, rootsSize);
 		}
-	} while (trueProgress < roots.size());
+	} while (trueProgress < rootsSize);
 
 	destroySignalContext(signalContext);
 
@@ -493,14 +494,14 @@ ComputeState compute(
 	// --> Initialize Serialized States
 	char** serializedStates;
 	if (*cancel == 1) {
-		serializedStates = (char**)malloc(sizeof(char*) * roots.size());
+		serializedStates = (char**)malloc(sizeof(char*) * rootsSize);
 	}
 
 	// --> Sort results
 	ComputeState minCompState = {};
 
 	int min = -1;
-	for (int i = 0; i < roots.size(); i++) {
+	for (int i = 0; i < rootsSize; i++) {
 		if (*cancel == 1) { // --> Serialize States
 			serializedStates[i] = serializeComputeState(
 				states[i],
@@ -536,7 +537,7 @@ ComputeState compute(
 
 		fwrite(rc.currentMinimum, sizeof(Minimum), 1, pFile);
 
-		for (int i = 0; i < roots.size(); i++) {
+		for (int i = 0; i < rootsSize; i++) {
 			fwrite(
 				serializedStates[i], sizeof(char),
 				stateSize, pFile

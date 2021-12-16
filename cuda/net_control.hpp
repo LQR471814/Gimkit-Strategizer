@@ -56,6 +56,7 @@ bool waitForSignal(SignalContext context) {
 		try {
 			context.socket->RecvFrom(buff, sizeof(char) * 1024, 0);
 		} catch (RecvTimeout &e) {
+			free(buff);
 			return false;
 		}
 		free(buff);
