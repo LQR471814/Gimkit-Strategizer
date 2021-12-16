@@ -52,14 +52,13 @@ void destroySignalContext(SignalContext ctx) {
 
 bool waitForSignal(SignalContext context) {
 	#ifdef _WIN32
+		char *buff = (char*)malloc(sizeof(char) * 1024);
 		try {
-			char *buff = (char*)malloc(sizeof(char) * 1024);
 			context.socket->RecvFrom(buff, sizeof(char) * 1024, 0);
-			free(buff);
 		} catch (RecvTimeout &e) {
 			return false;
 		}
-
+		free(buff);
 		return true;
 	#endif
 }
