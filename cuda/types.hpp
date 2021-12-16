@@ -11,6 +11,7 @@ typedef int8_t UpgradeId;
 typedef uint8_t MaxUpgradeLevel;
 typedef uint8_t Depth;
 
+const uint16_t ABORT_SIGNAL_PORT = 7000;
 const uint16_t BLOCK_SIZE = 256;
 
 const UpgradeId MONEY_PER_QUESTION = 0;
@@ -210,7 +211,7 @@ __host__ __device__ void printPlayStack(PlayStackFrame *stack, Depth depth)
 	printf(" -> Problems %d\n", stack[depth].params.problems);
 	printf(" -> ");
 	printPlayState(stack[depth].params.state);
-	printf(" -> Current Min %ld Target %d\n", stack[depth].currentMin, stack[depth].minTarget);
+	printf(" -> Current Min %lld Target %d\n", stack[depth].currentMin, stack[depth].minTarget);
 }
 
 __host__ __device__ void printComputeState(ComputeState state, int stackSize, int sequenceSize) {

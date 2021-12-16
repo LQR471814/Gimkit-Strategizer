@@ -7,6 +7,7 @@
 #include <math.h>
 
 #include "types.hpp"
+#include "net_control.hpp"
 #include "CLI11.hpp"
 
 #include "misc.hpp"
@@ -49,19 +50,19 @@ __forceinline__ __host__ __device__ struct GoalResult playUpgrade(UpgradeLevel *
 	return result;
 }
 
-struct std::vector<Permutation> permuteRecursive(PermuteContext *c, PermuteState r, Depth depth)
+struct std::vector<Permutation> permuteRecursive(PermuteContext c, PermuteState r, Depth depth)
 {
-	if (depth == (*c).max)
+	if (depth == c.max)
 	{
 		Permutation p = Permutation{0, r.sequence, r.play};
 		return std::vector<Permutation>{p};
 	}
 
 	std::vector<Permutation> permutes;
-	for (int u : (*c).upgrades)
+	for (int u : c.upgrades)
 	{
 		PlayState lowerState = r.play;
-		GoalResult res = playUpgrade((*c).data, r.play, u, -1);
+		GoalResult res = playUpgrade(c.data, r.play, u, -1);
 		lowerState.money = res.newMoney;
 		lowerState.stats = incrementStat(r.play.stats, u);
 
@@ -105,99 +106,100 @@ __forceinline__ __host__ __device__ void iterativeReturn(PlayStackFrame *stack, 
 }
 
 __host__ __device__ int playIterative(
-	ComputeContext *c,
+	ComputeContext c,
 	ComputeState state,
 	Depth startOffset
 ) {
 	PlayStackFrame *stack = state.stack;
-	Depth *depth = state.depth;
 
 	//? To prevent crashes when the initial moneyValue is already larger than the goal
-	if (stack[*depth].params.state.money >= (*c).moneyGoal) {
-		return stack[*depth].params.problems;
+	if (stack[*state.depth].params.state.money >= c.moneyGoal) {
+		return stack[*state.depth].params.problems;
 	}
 
 	while (true) {
-		if (*(*c).cancel == 1) {
+		Depth depth = *state.depth;
+
+		if (*c.cancel == 1) {
 			return state.problems;
 		}
 
 		if (
-			(*c).currentMinimum &&
-			stack[*depth].params.problems >= *(*c).currentMinimum &&
-			*(*c).currentMinimum > 0
+			c.currentMinimum &&
+			stack[depth].params.problems >= *c.currentMinimum &&
+			*c.currentMinimum > 0
 		) {
 			iterativeReturn(
-				stack, depth,
-				stack[*depth].params.problems + 9999
+				stack, state.depth,
+				stack[depth].params.problems + 9999
 			);
 			continue;
 		}
 
-		if (stack[*depth].params.state.money >= (*c).moneyGoal) {
+		if (stack[depth].params.state.money >= c.moneyGoal) {
 			iterativeReturn(
-				stack, depth,
-				stack[*depth].params.problems
+				stack, state.depth,
+				stack[depth].params.problems
 			);
 			continue;
 		}
 
-		if (stack[*depth].branch == (*c).upgradesSize) {
-			state.sequence[startOffset + *depth] = stack[*depth].minTarget;
-			if (*depth == 0) {
-				return stack[*depth].currentMin;
+		if (stack[depth].branch == c.upgradesSize) {
+			state.sequence[startOffset + depth] = stack[depth].minTarget;
+			if (depth == 0) {
+				return stack[depth].currentMin;
 			}
 
 			iterativeReturn(
-				stack, depth,
-				stack[*depth].currentMin
+				stack, state.depth,
+				stack[depth].currentMin
 			);
 			continue;
 		}
 
-		if (*depth == (*c).max) {
+		if (depth == c.max) {
 			GoalResult res = playGoal(
-				(*c).data,
-				stack[*depth].params.state,
-				(*c).moneyGoal,
-				stack[*depth].params.upperMinimum
+				c.data,
+				stack[depth].params.state,
+				c.moneyGoal,
+				stack[depth].params.upperMinimum
 			);
 
 			iterativeReturn(
-				stack, depth,
-				stack[*depth].params.problems + res.problems
+				stack, state.depth,
+				stack[depth].params.problems + res.problems
 			);
 			continue;
 		}
 
 		if (getStat(
-			stack[*depth].params.state.stats,
-			(*c).upgrades[stack[*depth].branch]
+			stack[depth].params.state.stats,
+			c.upgrades[stack[depth].branch]
 		)+1 == MAX_LEVEL) {
-			iterativeCall(stack, stack[*depth].params, depth);
+			iterativeCall(stack, stack[depth].params, state.depth);
 			continue;
 		}
 
 		GoalResult res = playUpgrade(
-			(*c).data, stack[*depth].params.state,
-			(*c).upgrades[stack[*depth].branch],
-			stack[*depth].params.upperMinimum
+			c.data, stack[depth].params.state,
+			c.upgrades[stack[depth].branch],
+			stack[depth].params.upperMinimum
 		);
 
 		PlayState lowerState = {
 			incrementStat(
-				stack[*depth].params.state.stats,
-				(*c).upgrades[stack[*depth].branch]
+				stack[depth].params.state.stats,
+				c.upgrades[stack[depth].branch]
 			),
-			stack[*depth].params.state.setbackChance,
+			stack[depth].params.state.setbackChance,
 			res.newMoney,
 		};
 
 		iterativeCall(stack, {
 			lowerState,
-			stack[*depth].params.problems + res.problems,
-			stack[*depth].currentMin
-		}, depth);
+			stack[depth].params.problems + res.problems,
+			stack[depth].currentMin
+		}, state.depth);
 	}
 }
 
@@ -230,7 +232,7 @@ std::vector<Permutation> getRoots(
 		0, 0, std::vector<UpgradeId>{},		  // sequence
 	};
 
-	return permuteRecursive(&c, r, 0);
+	return permuteRecursive(c, r, 0);
 }
 
 struct UpgradeLevel** initializeIndex()
@@ -292,7 +294,7 @@ PlayStackFrame* initializeStack(int lowerDepth, int upgradesSize)
 
 __global__ void computeStrategy(
 	uint32_t *progress,
-	ComputeContext *c,
+	ComputeContext c,
 	ComputeState *states,
 	int rootSize,
 	int offset
@@ -309,7 +311,7 @@ __global__ void computeStrategy(
 		atomicAdd(progress, 1);
 }
 
-ComputeContext* initializeContext(
+ComputeContext initializeContext(
 	std::vector<UpgradeId> upgrades,
 	Money moneygoal,
 	ComputeOptions options
@@ -332,18 +334,7 @@ ComputeContext* initializeContext(
 		NULL,
 	};
 
-	ComputeContext *rc = NULL;
-	cudaMallocManaged(&rc, sizeof(ComputeContext));
-	*rc = c;
-
-	return rc;
-}
-
-void deallocateContext(ComputeContext *rc) {
-	cudaFree(rc->upgrades);
-	cudaFree(rc->currentMinimum);
-	deallocateIndex(rc->data);
-	cudaFree(rc);
+	return c;
 }
 
 ComputeState* initializeThreadStates(
@@ -380,8 +371,8 @@ ComputeState compute(
 	ComputeOptions opts
 ) {
 	// --> Initialize Roots / Compute States
-	ComputeContext *rc = initializeContext(upgrades, moneyGoal, opts);
-	std::vector<Permutation> roots = getRoots((*rc).data, upgrades, opts.syncDepth);
+	ComputeContext rc = initializeContext(upgrades, moneyGoal, opts);
+	std::vector<Permutation> roots = getRoots(rc.data, upgrades, opts.syncDepth);
 	ComputeState* states;
 
 	if (!opts.recoverFrom.empty()) {
@@ -394,7 +385,7 @@ ComputeState compute(
 
 		char* b = (char*)malloc(sizeof(Minimum));
 		fread(b, sizeof(Minimum), 1, pFile);
-		*(rc->currentMinimum) = readFromPointer<Minimum>(&b);
+		*rc.currentMinimum = readFromPointer<Minimum>(&b);
 
 		size_t stateSize = computeStateSize(
 			opts.maxDepth - opts.syncDepth,
@@ -434,7 +425,7 @@ ComputeState compute(
 	uint8_t *cancel = createHostPointer<uint8_t>(0);
 	uint8_t *d_cancel = createPinnedPointer<uint8_t>(cancel);
 
-	rc->cancel = d_cancel;
+	rc.cancel = d_cancel;
 
 	uint32_t *progress = createHostPointer<uint32_t>(0);
 	uint32_t *d_progress = createPinnedPointer<uint32_t>(progress);
@@ -456,7 +447,17 @@ ComputeState compute(
 	cudaEventRecord(stop);
 	int bufProgress = 0;
 	int trueProgress = 0;
+
+	SignalContext signalContext = initializeSignalListener(ABORT_SIGNAL_PORT, 1);
+	printf("Listening to abort signal on port %u\n", ABORT_SIGNAL_PORT);
+
 	do {
+		if (waitForSignal(signalContext)) {
+			*cancel = 1;
+			printf("Aborting and saving...\n");
+			break;
+		}
+
 		std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
 		if (
 			opts.timeout > 0 && std::chrono::duration_cast<std::chrono::seconds>(now - begin)
@@ -474,6 +475,8 @@ ComputeState compute(
 			printf("Progress %d / %zd\n", bufProgress, roots.size());
 		}
 	} while (trueProgress < roots.size());
+
+	destroySignalContext(signalContext);
 
 	// --> Report run performance
 	cudaEventSynchronize(stop);
@@ -531,7 +534,7 @@ ComputeState compute(
 			opts.maxDepth
 		);
 
-		fwrite(rc->currentMinimum, sizeof(Minimum), 1, pFile);
+		fwrite(rc.currentMinimum, sizeof(Minimum), 1, pFile);
 
 		for (int i = 0; i < roots.size(); i++) {
 			fwrite(
@@ -553,7 +556,6 @@ ComputeState compute(
 	cudaFree(progress);
 	cudaFree(d_progress);
 
-	deallocateContext(rc);
 	return minCompState;
 }
 
@@ -629,14 +631,15 @@ int main(int argc, char** argv)
 
 	ComputeState result = compute(upgrades, moneyGoal, opts);
 
-	printf("========== RESULTS ==========\n");
-	// printComputeState(result, maxDepth - syncDepth, maxDepth);
-	printf("Minimum Problems: %u\n", result.problems);
-	printf("Sequence Required: ");
-	for (int i = 0; i < maxDepth; i++) {
-		printf("%d ", result.sequence[i]);
+	if (result.sequence) {
+		printf("========== RESULTS ==========\n");
+		printf("Minimum Problems: %u\n", result.problems);
+		printf("Sequence Required: ");
+		for (int i = 0; i < maxDepth; i++) {
+			printf("%d ", result.sequence[i]);
+		}
+		printf("\n");
 	}
-	printf("\n");
 
 	return 0;
 }
