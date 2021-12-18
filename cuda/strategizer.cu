@@ -13,32 +13,44 @@
 #include "misc.hpp"
 #include "pinned_memory.hpp"
 
+__forceinline__ __host__ __device__ Money moneyFromProblems(
+	double mq,
+	double sb,
+	double mu,
+	ProblemCount problems
+) {
+	return mu * problems*(2*mq + sb*(problems-1))/2;
+}
+
+__forceinline__ __host__ __device__ ProblemCount problemsFromMoney(
+	double mq,
+	double sb,
+	double mu,
+	Money init,
+	Money goal
+) {
+	double a = mu*sb;
+	double b = -mu*(sb - 2*mq);
+	double c = 2*(init-goal);
+	return ProblemCount(ceilf(
+		(-b + sqrtf(pow(b, 2) - 4*a*c)) / (2*a)
+	));
+}
+
 __host__ __device__ struct GoalResult playGoal(UpgradeLevel **data, PlayState s, Money goal, Minimum giveup)
 {
 	if (s.money >= goal) {
 		return GoalResult{0, s.money};
 	}
 
-	float mq = data[MONEY_PER_QUESTION][s.stats.moneyPerQuestion].value;
-	float sb = data[STREAK_BONUS][s.stats.streakBonus].value;
-	float mu = data[MULTIPLIER][s.stats.multiplier].value;
-	// float in = data[INSURANCE][s.stats.insurance].value;
+	double mq = data[MONEY_PER_QUESTION][s.stats.moneyPerQuestion].value;
+	double sb = data[STREAK_BONUS][s.stats.streakBonus].value;
+	double mu = data[MULTIPLIER][s.stats.multiplier].value;
+	// double in = data[INSURANCE][s.stats.insurance].value;
 
-	float a = mu*sb;
-	float b = -mu*(sb - 2*mq);
-	float c = 2*(s.money-goal);
-
-	float problems = ceilf(
-		(-b + sqrtf(pow(b, 2) - 4*a*c)) / (2*a)
-	);
-
-	Money money = s.money + (
-		mu*problems * (
-			2*mq + sb*(problems - 1)
-		)
-	) / 2;
-
-	return GoalResult{uint32_t(problems), money};
+	ProblemCount problems = problemsFromMoney(mq, sb, mu, s.money, goal);
+	Money money = s.money + moneyFromProblems(mq, sb, mu, problems);
+	return GoalResult{problems, money};
 }
 
 __forceinline__ __host__ __device__ struct GoalResult playUpgrade(UpgradeLevel **data, PlayState s, UpgradeId target, Minimum giveup)
@@ -176,7 +188,7 @@ __host__ __device__ int playIterative(
 			stack[depth].params.state.stats,
 			c.upgrades[stack[depth].branch]
 		)+1 == MAX_LEVEL) {
-			iterativeCall(stack, stack[depth].params, state.depth);
+			iterativeReturn(stack, state.depth, stack[depth].params.problems);
 			continue;
 		}
 

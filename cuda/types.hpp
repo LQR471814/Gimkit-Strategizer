@@ -21,6 +21,7 @@ const UpgradeId INSURANCE = 3;
 
 const uint8_t UPGRADE_COUNT = 4;
 const MaxUpgradeLevel MAX_LEVEL = 10;
+const ProblemCount MAX_STREAK = 100;
 
 struct UpgradeLevel
 {
