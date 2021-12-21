@@ -7,3 +7,7 @@
 *.ncu-rep
 
 /cuda/CLI11.hpp
+
+node_modules
+package-lock.json
+*.min.js
