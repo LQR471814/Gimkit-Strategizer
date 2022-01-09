@@ -5,7 +5,7 @@ export enum Upgrade {
 	insurance,
 }
 
-export type IDMap<T> = { [key in keyof Upgrade as Upgrade]: T };
+export type EnumMap<T> = { [key in keyof Upgrade as Upgrade]: T };
 
 export const nameMap: {
 	[key: string]: Upgrade
@@ -16,12 +16,14 @@ export const nameMap: {
 	"Amount Covered": Upgrade.insurance,
 }
 
-export const idMap: IDMap<string> = {
+export const idMap: EnumMap<string> = {
 	[Upgrade.moneyPerQuestion]: "Money Per Question",
 	[Upgrade.streakBonus]: "Streak Bonus",
 	[Upgrade.multiplier]: "Multiplier",
 	[Upgrade.insurance]: "Amount Covered",
 }
+
+export const maxLevel = 10
 
 export const upgradeData = {
 	[Upgrade.moneyPerQuestion]: [

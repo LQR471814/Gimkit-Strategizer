@@ -1,49 +1,80 @@
 import { PlayState } from "./backend"
-import { nameMap, Upgrade, upgradeData } from "./data"
+import { maxLevel, nameMap, Upgrade, upgradeData } from "./data"
 import { getXPathElement } from "./common"
 
-export class GameEvents {
-	state: PlayState
-	onMoney?: (money: number) => void
-	onUpgrade?: (upgrade: Upgrade) => void
+export enum Screens {
+	QUESTION,
+	SHOP_LEVELS_SCREEN,
+	MONEY_INDICATOR,
+}
 
-	constructor(state: PlayState) {
+type MonitorTarget = { screen: GameScreen, callback: (element: Node, screen: GameScreen) => void }
+
+class ScreenMonitor {
+	targets: MonitorTarget[]
+	observer: MutationObserver
+
+	constructor(targets: MonitorTarget[]) {
+		this.targets = targets
+		this.observer = new MutationObserver(() => this.onUpdate())
+		this.observer.observe(document.body, {
+			subtree: true,
+			childList: true,
+			characterData: true,
+		})
+	}
+
+	onUpdate() {
+		for (const target of this.targets) {
+			const element = target.screen.element()
+			if (element !== null) {
+				target.callback(element, target.screen)
+			}
+		}
+	}
+}
+
+abstract class GameScreen {
+	element(): Node | null {
+		return null
+	}
+}
+
+
+class MoneyIndicator implements GameScreen {
+	money() {
+		let moneyElement = this.element()
+		let money = moneyElement?.textContent?.replace(/[\$,\,]/g, "")
+		return parseInt(money!)
+	}
+
+	element = () => getXPathElement(
+		'//div[contains(text(), "$") and contains(@style, "font-weight: 900")]'
+	)
+}
+
+class QuestionScreen implements GameScreen {
+	question() {
+		return getXPathElement("//span", this.element())
+	}
+
+	element() {
+		return getXPathElement("//div[contains(@class, 'enter-done')]")
+	}
+}
+
+class ShopLevelsScreen extends GameScreen {
+	state: PlayState
+	displayName: string
+	buttonRoot = '//div[contains(@style, "white-space: nowrap")]'
+
+	constructor(name: string, state: PlayState) {
+		super()
+		this.displayName = name
 		this.state = state
 	}
 
-	getMoneyElement() {
-		return getXPathElement(
-			'//div[contains(text(), "$") and contains(@style, "font-weight: 900")]'
-		)
-	}
-
-	getMoney() {
-		let moneyElement = this.getMoneyElement()
-		let money = moneyElement?.textContent?.replace(/[\$,\,]/g, "")
-		if (!money) return null
-		return parseInt(money)
-	}
-
-	listenMoney() {
-		const moneyElement = this.getMoneyElement()
-		if (moneyElement !== null) {
-			new MutationObserver(() => {
-				let money = this.getMoney()
-				if (money !== null) {
-					this.onMoney?.call(this, money)
-				}
-			}).observe(
-				moneyElement,
-				{
-					subtree: true,
-					childList: true,
-					characterData: true
-				},
-			)
-		}
-	}
-
-	getLevel() {
+	level() {
 		const levelStr = getXPathElement(
 			'(//div[contains(@style, "color: gray")]/../div[2])[last()]'
 		)?.textContent
@@ -53,60 +84,88 @@ export class GameEvents {
 		}
 	}
 
-	checkUpgrade(upgradeStr: string) {
-		const id = nameMap[upgradeStr]
-		const buttonRoot = '//div[contains(@style, "white-space: nowrap")]'
-		const titleExpression = getXPathElement(
-			`${buttonRoot}//div[text()="${upgradeStr}"]`
-		)
+	attachUpgradeTrigger(trigger: () => void) {
+		const id = nameMap[this.displayName]
+		const displayLevel = this.level()
 
-		if (titleExpression) {
-			const displayLevel = this.getLevel()
-			console.info(`Update level ${this.state.stats[id]} -> ${displayLevel}`)
-			if (displayLevel) {
+		if (displayLevel !== undefined) {
+			if (displayLevel > this.state.stats[id]) {
+				console.info(`Update level ${this.state.stats[id]} -> ${displayLevel}`)
 				this.state.stats[id] = displayLevel
+				trigger()
 			}
-
-			const button = getXPathElement(
-				`${buttonRoot}//div[contains(text(), "$${
-					upgradeData[id][
-						this.state.stats[id]+1
-					].cost.toLocaleString("en-US")
-				}")]`
-			)?.parentElement?.parentElement?.parentElement?.parentElement
-			if (!button) return
-
-			if (
-				button.getAttribute("listening") === "true" ||
-				button.hasAttribute("disabled")
-			) return
-
-			button.addEventListener("click", () => {
-				this.onUpgrade?.call(this, id)
-			})
-			button.setAttribute("listening", "true")
 		}
-	}
 
-	listenUpgrade() {
-		let upgradeObserver = new MutationObserver(() => {
-			for (const upgradeStr in nameMap) {
-				this.checkUpgrade(upgradeStr)
-			}
+		if (this.state.isMax(id)) return
+
+		const button = getXPathElement(
+			`${this.buttonRoot}//div[contains(text(), "$${upgradeData[id][
+				this.state.stats[id] + 1
+			].cost.toLocaleString("en-US")
+			}")]`
+		)?.parentElement?.parentElement?.parentElement?.parentElement
+		if (!button) return
+
+		if (
+			button.getAttribute("listening") === "true" ||
+			button.hasAttribute("disabled")
+		) return
+
+		button.addEventListener("click", () => {
+			this.state.upgrade()
+			trigger()
 		})
 
-		upgradeObserver.observe(
-			document,
-			{
-				subtree: true,
-				characterData: true,
-				childList: true
-			}
-		)
+		button.setAttribute("listening", "true")
 	}
 
-	listen() {
-		this.listenMoney()
-		this.listenUpgrade()
+	element = () => getXPathElement(
+		`${this.buttonRoot}//div[text()="${this.displayName}"]`
+	)
+}
+
+type EventHooks = {
+	onMoney: (money: number) => void
+	onUpgrade: (upgrade: Upgrade) => void
+}
+
+export class GameEvents {
+	state: PlayState
+	monitor: ScreenMonitor
+	eventHooks: EventHooks
+
+	private _moneyIndicator: MoneyIndicator
+
+	constructor(state: PlayState, eventHooks: EventHooks) {
+		this.state = state
+		this.eventHooks = eventHooks
+
+		this._moneyIndicator = new MoneyIndicator()
+
+		this.monitor = new ScreenMonitor([
+			{
+				screen: this._moneyIndicator,
+				callback: () => this.eventHooks.onMoney(this._moneyIndicator.money())
+			},
+			{
+				screen: new QuestionScreen(),
+				callback: () => {}
+			},
+			...(
+				Object.keys(nameMap).map(
+					e => ({
+						screen: new ShopLevelsScreen(e, state),
+						callback: (_, s) => {
+							const screen = s as ShopLevelsScreen
+							screen.attachUpgradeTrigger(() =>
+								this.eventHooks.onUpgrade(nameMap[e])
+							)
+						}
+					} as MonitorTarget)
+				)
+			)
+		])
 	}
+
+	fetchMoney = () => this._moneyIndicator.money()
 }

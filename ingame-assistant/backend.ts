@@ -1,9 +1,11 @@
-import { Upgrade, IDMap } from "./data"
+import { Upgrade, EnumMap, upgradeData, maxLevel as MAX_LEVEL } from "./data"
 import { path } from "./path.config"
+
+export type Goal = { upgrade: Upgrade, money: number }
 
 export class PlayState {
 	currentPath: Upgrade[]
-	stats: IDMap<number>
+	stats: EnumMap<number>
 
 	constructor() {
 		this.currentPath = [...path]
@@ -15,8 +17,22 @@ export class PlayState {
 		}
 	}
 
-	upgrade() {
+	upgrade(): void {
 		this.stats[this.currentPath[0]]++
 		this.currentPath.shift()
 	}
+
+	nextup(): Goal {
+		const upgrade = this.currentPath[0]
+		if (upgrade === undefined || this.isMax(upgrade)) {
+			return { upgrade: -1, money: -1 }
+		}
+		return { upgrade: upgrade, money: upgradeData[upgrade][this.stats[upgrade]+1].cost }
+	}
+
+	isReady = (money: number): boolean =>
+		money >= this.nextup().money
+
+	isMax = (id: Upgrade): boolean =>
+		this.stats[id]+1 >= MAX_LEVEL
 }

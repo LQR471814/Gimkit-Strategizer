@@ -1,4 +1,5 @@
-import { idMap, Upgrade } from "./data"
+import { Goal } from "./backend"
+import { idMap } from "./data"
 
 const rootStyle = {
 	top: "5%",
@@ -35,6 +36,10 @@ const buttonStyle = {
 	borderRadius: "5px"
 }
 
+type GUIHooks = {
+	onSkip: () => void
+}
+
 export class GUIPanel {
 	root: HTMLDivElement
 
@@ -44,12 +49,14 @@ export class GUIPanel {
 	moneyDisplay: HTMLDivElement
 	targetDisplay: HTMLDivElement
 
-	onSkip?: () => void
+	hooks: GUIHooks
 
-	constructor() {
+	constructor(hooks: GUIHooks) {
+		this.hooks = hooks
+
 		this.root = document.createElement("div")
 		Object.assign(this.root.style, rootStyle)
-		document.body.append(this.root)
+		document.children[0].append(this.root)
 
 		const labelContainer = document.createElement("div")
 		labelContainer.style.display = "flex"
@@ -68,7 +75,7 @@ export class GUIPanel {
 		const skipButton = document.createElement("button")
 		skipButton.textContent = "Skip"
 		Object.assign(skipButton.style, {...buttonStyle, ...textStyle})
-		skipButton.onclick = () => this.onSkip?.call(this)
+		skipButton.onclick = () => this.hooks.onSkip()
 
 		labelContainer.append(titleContainer, skipButton)
 
@@ -91,8 +98,15 @@ export class GUIPanel {
 		this.readyDisplay.style.color = ready ? readyColor : unreadyColor
 	}
 
-	updateGoal(money: number | null, target: Upgrade | null) {
-		this.moneyDisplay.textContent = `Money - ${money !== null ? money.toLocaleString() : "DONE"}`
-		this.targetDisplay.textContent = `Upgrade - ${target !== null ? idMap[target] : "DONE"}`
+	updateGoal(goal: Goal) {
+		if (goal.money < 0 && goal.upgrade < 0) {
+			this.updateReadiness(true)
+			this.moneyDisplay.textContent = 'Money - DONE'
+			this.targetDisplay.textContent = 'Upgrade - DONE'
+			return
+		}
+
+		this.moneyDisplay.textContent = `Money - ${goal.money.toLocaleString()}`
+		this.targetDisplay.textContent = `Upgrade - ${idMap[goal.upgrade]}`
 	}
 }
