@@ -1,6 +1,6 @@
 export function getXPathElement(expression: string, contextNode?: Node) {
 	return document.evaluate(
-		`.${expression}`, contextNode ?? document, null,
+		expression, contextNode ?? document, null,
 		XPathResult.FIRST_ORDERED_NODE_TYPE
 	).singleNodeValue
 }
@@ -30,4 +30,4 @@ export const addKeyboardTrigger = (keys: string[], onkey: (ev: KeyboardEvent) =>
 		if (keys.includes(e.code)) onkey(e)
 	}, { once: true })
 
-export const textOf = (element: Node) => getXPathElement("//*[text()]", element)!.textContent!
+export const textOf = (element: Node) => getXPathElement(".//*[text()]", element)!.textContent!

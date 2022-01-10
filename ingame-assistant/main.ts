@@ -6,6 +6,7 @@ const state = new PlayState()
 const gui = new GUIPanel({
 	onSkip: () => {
 		state.upgrade()
+		gui.updateReadiness(state.isReady(events.fetchMoney()))
 		gui.updateGoal(state.nextup())
 	}
 })

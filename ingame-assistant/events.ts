@@ -2,7 +2,11 @@ import { PlayState, QuestionStore } from "./backend"
 import { addKeyboardTrigger, addTrigger, getMultipleXPathElements, getXPathElement, textOf } from "./common"
 import { nameMap, Upgrade, upgradeData } from "./data"
 
-type MonitorTarget = { screen: GameScreen, callback: (element: Node, screen: GameScreen) => void }
+type MonitorTarget = {
+	screen: GameScreen,
+	callback: (screen: GameScreen) => void,
+	retryDelay?: number
+}
 
 class ScreenMonitor {
 	targets: MonitorTarget[]
@@ -20,10 +24,14 @@ class ScreenMonitor {
 
 	onUpdate() {
 		for (const target of this.targets) {
-			const element = target.screen.element()
-			if (element !== null) {
-				target.callback(element, target.screen)
+			const checkCall = (depth: number) => {
+				if (target.screen.element()) {
+					target.callback(target.screen)
+				} else if (target.retryDelay && depth < 1) {
+					setTimeout(() => checkCall(depth+1), target.retryDelay)
+				}
 			}
+			checkCall(0)
 		}
 	}
 }
@@ -94,6 +102,8 @@ class QuestionScreen implements GameScreen {
 				)
 			}
 		}
+
+		return
 	}
 
 	element() {
@@ -194,7 +204,10 @@ export class GameEvents {
 			},
 			{
 				screen: this._questionScreen,
-				callback: () => this._questionScreen.setup()
+				retryDelay: 200,
+				callback: () => {
+					this._questionScreen.setup()
+				}
 			},
 			{
 				screen: this._verifyScreen,
@@ -212,7 +225,7 @@ export class GameEvents {
 				Object.keys(nameMap).map(
 					e => ({
 						screen: new ShopLevelsScreen(e, state),
-						callback: (_, s) => {
+						callback: (s) => {
 							const screen = s as ShopLevelsScreen
 							screen.attachUpgradeTrigger(() =>
 								this.eventHooks.onUpgrade(nameMap[e])
