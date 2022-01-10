@@ -23,7 +23,7 @@ export const idMap: EnumMap<string> = {
 	[Upgrade.insurance]: "Amount Covered",
 }
 
-export const maxLevel = 10
+export const MAX_LEVEL = 10
 
 export const upgradeData = {
 	[Upgrade.moneyPerQuestion]: [

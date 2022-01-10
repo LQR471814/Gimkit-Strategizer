@@ -1,4 +1,4 @@
-import { Upgrade, EnumMap, upgradeData, maxLevel as MAX_LEVEL } from "./data"
+import { EnumMap, MAX_LEVEL, Upgrade, upgradeData } from "./data"
 import { path } from "./path.config"
 
 export type Goal = { upgrade: Upgrade, money: number }
@@ -27,12 +27,21 @@ export class PlayState {
 		if (upgrade === undefined || this.isMax(upgrade)) {
 			return { upgrade: -1, money: -1 }
 		}
-		return { upgrade: upgrade, money: upgradeData[upgrade][this.stats[upgrade]+1].cost }
+		return { upgrade: upgrade, money: upgradeData[upgrade][this.stats[upgrade] + 1].cost }
 	}
 
 	isReady = (money: number): boolean =>
 		money >= this.nextup().money
 
 	isMax = (id: Upgrade): boolean =>
-		this.stats[id]+1 >= MAX_LEVEL
+		this.stats[id] + 1 >= MAX_LEVEL
+}
+
+export class QuestionStore {
+	map: Map<string, string>
+	pending?: { question: string, answer: string }
+
+	constructor() {
+		this.map = new Map()
+	}
 }

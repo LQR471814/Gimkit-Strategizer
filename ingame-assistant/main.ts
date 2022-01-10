@@ -3,7 +3,6 @@ import { GameEvents } from "./events";
 import { GUIPanel } from "./gui";
 
 const state = new PlayState()
-
 const gui = new GUIPanel({
 	onSkip: () => {
 		state.upgrade()

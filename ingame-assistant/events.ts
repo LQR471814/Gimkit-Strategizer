@@ -1,12 +1,6 @@
-import { PlayState } from "./backend"
-import { maxLevel, nameMap, Upgrade, upgradeData } from "./data"
-import { getXPathElement } from "./common"
-
-export enum Screens {
-	QUESTION,
-	SHOP_LEVELS_SCREEN,
-	MONEY_INDICATOR,
-}
+import { PlayState, QuestionStore } from "./backend"
+import { addKeyboardTrigger, addTrigger, getMultipleXPathElements, getXPathElement, textOf } from "./common"
+import { nameMap, Upgrade, upgradeData } from "./data"
 
 type MonitorTarget = { screen: GameScreen, callback: (element: Node, screen: GameScreen) => void }
 
@@ -40,7 +34,6 @@ abstract class GameScreen {
 	}
 }
 
-
 class MoneyIndicator implements GameScreen {
 	money() {
 		let moneyElement = this.element()
@@ -54,22 +47,71 @@ class MoneyIndicator implements GameScreen {
 }
 
 class QuestionScreen implements GameScreen {
-	question() {
-		return getXPathElement("//span", this.element())
+	root = "//div[contains(@style, 'opacity: 1') and contains(@style, 'translateY')]"
+	store: QuestionStore
+
+	constructor(store: QuestionStore) {
+		this.store = store
+	}
+
+	question = () => textOf(getXPathElement(`${this.root}/div[1]`)!)
+
+	choice = (index: number) => getXPathElement(`${this.root}/div[2]/div[${index + 1}]`)
+
+	choiceText = (text: string) => getMultipleXPathElements(`${this.root}/div[2]/div[.//span[text()='${text}']]`)
+
+	setup() {
+		if (this.element() === null) return
+
+		const question = this.question()
+		if (this.store.map.get(question) !== undefined) {
+			const choices = this.choiceText(this.store.map.get(question)!)
+			for (const choice of choices) {
+				if (choice) {
+					(choice as HTMLElement).style.border = "5px solid white"
+				}
+			}
+			return
+		}
+
+		for (let i = 0; i < 4; i++) {
+			const choice = this.choice(i)
+			if (choice !== null) {
+				const choiceText = textOf(choice)
+				const answer = {
+					question: question,
+					answer: choiceText
+				}
+
+				addKeyboardTrigger(
+					[`Digit${i + 1}`],
+					() => this.store.pending = answer
+				)
+
+				addTrigger(
+					choice as HTMLElement,
+					() => this.store.pending = answer
+				)
+			}
+		}
 	}
 
 	element() {
-		return getXPathElement("//div[contains(@class, 'enter-done')]")
+		return getXPathElement(this.root)
 	}
 }
 
-class ShopLevelsScreen extends GameScreen {
+class VerificationScreen implements GameScreen {
+	verify = (): boolean => textOf(this.element()!).includes("+")
+	element = () => getXPathElement("//div[contains(@class, 'animated tada')]")
+}
+
+class ShopLevelsScreen implements GameScreen {
 	state: PlayState
 	displayName: string
 	buttonRoot = '//div[contains(@style, "white-space: nowrap")]'
 
 	constructor(name: string, state: PlayState) {
-		super()
 		this.displayName = name
 		this.state = state
 	}
@@ -107,16 +149,13 @@ class ShopLevelsScreen extends GameScreen {
 		if (!button) return
 
 		if (
-			button.getAttribute("listening") === "true" ||
 			button.hasAttribute("disabled")
 		) return
 
-		button.addEventListener("click", () => {
+		addTrigger(button, () => {
 			this.state.upgrade()
 			trigger()
 		})
-
-		button.setAttribute("listening", "true")
 	}
 
 	element = () => getXPathElement(
@@ -133,14 +172,20 @@ export class GameEvents {
 	state: PlayState
 	monitor: ScreenMonitor
 	eventHooks: EventHooks
+	store: QuestionStore
 
 	private _moneyIndicator: MoneyIndicator
+	private _questionScreen: QuestionScreen
+	private _verifyScreen: VerificationScreen
 
 	constructor(state: PlayState, eventHooks: EventHooks) {
 		this.state = state
 		this.eventHooks = eventHooks
+		this.store = new QuestionStore()
 
 		this._moneyIndicator = new MoneyIndicator()
+		this._questionScreen = new QuestionScreen(this.store)
+		this._verifyScreen = new VerificationScreen()
 
 		this.monitor = new ScreenMonitor([
 			{
@@ -148,8 +193,20 @@ export class GameEvents {
 				callback: () => this.eventHooks.onMoney(this._moneyIndicator.money())
 			},
 			{
-				screen: new QuestionScreen(),
-				callback: () => {}
+				screen: this._questionScreen,
+				callback: () => this._questionScreen.setup()
+			},
+			{
+				screen: this._verifyScreen,
+				callback: () => {
+					if (this._verifyScreen.verify() && this.store.pending) {
+						this.store.map.set(
+							this.store.pending!.question,
+							this.store.pending!.answer,
+						)
+						this.store.pending = undefined
+					}
+				}
 			},
 			...(
 				Object.keys(nameMap).map(
@@ -165,6 +222,8 @@ export class GameEvents {
 				)
 			)
 		])
+
+		this._questionScreen.setup()
 	}
 
 	fetchMoney = () => this._moneyIndicator.money()
