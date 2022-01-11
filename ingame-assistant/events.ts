@@ -1,5 +1,5 @@
 import { PlayState, QuestionStore } from "./backend"
-import { addKeyboardTrigger, addTrigger, getMultipleXPathElements, getXPathElement, textOf } from "./common"
+import { addTrigger, getMultipleXPathElements, getXPathElement, KeyboardTriggerGroup, setInputValue, textOf } from "./common"
 import { nameMap, Upgrade, upgradeData } from "./data"
 
 type MonitorTarget = {
@@ -63,15 +63,45 @@ class QuestionScreen implements GameScreen {
 	}
 
 	question = () => textOf(getXPathElement(`${this.root}/div[1]`)!)
-
 	choice = (index: number) => getXPathElement(`${this.root}/div[2]/div[${index + 1}]`)
-
 	choiceText = (text: string) => getMultipleXPathElements(`${this.root}/div[2]/div[.//span[text()='${text}']]`)
+
+	input = () => getXPathElement(`${this.root}/div[2]//input`)
+	inputSubmit = () => getXPathElement(`${this.root}/div[2]//div[text()='Submit']`)
 
 	setup() {
 		if (this.element() === null) return
 
 		const question = this.question()
+		if (this.input() !== null) {
+			this._setupInput(question)
+		} else {
+			this._setupMultiChoice(question)
+		}
+	}
+
+	_setupInput(question: string) {
+		const input = this.input() as HTMLInputElement
+		const submitButton = this.inputSubmit() as HTMLElement
+
+		if (this.store.map.get(question) !== undefined) {
+			setInputValue(input, this.store.map.get(question)!)
+		}
+
+		const done = () => {
+			this.store.pending = {
+				question: question,
+				answer: input.value
+			}
+			triggers.close()
+		}
+
+		const triggers = new KeyboardTriggerGroup()
+		triggers.addTrigger(['Enter'], done)
+		addTrigger(submitButton, done)
+	}
+
+	_setupMultiChoice(question: string) {
 		if (this.store.map.get(question) !== undefined) {
 			const choices = this.choiceText(this.store.map.get(question)!)
 			for (const choice of choices) {
@@ -80,6 +110,8 @@ class QuestionScreen implements GameScreen {
 				}
 			}
 		}
+
+		const listeners = new KeyboardTriggerGroup()
 
 		for (let i = 0; i < 4; i++) {
 			const choice = this.choice(i)
@@ -90,7 +122,7 @@ class QuestionScreen implements GameScreen {
 					answer: choiceText
 				}
 
-				addKeyboardTrigger(
+				listeners.addTrigger(
 					[`Digit${i + 1}`],
 					() => this.store.pending = answer
 				)
@@ -101,8 +133,6 @@ class QuestionScreen implements GameScreen {
 				)
 			}
 		}
-
-		return
 	}
 
 	element() {
