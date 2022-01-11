@@ -79,7 +79,6 @@ class QuestionScreen implements GameScreen {
 					(choice as HTMLElement).style.border = "5px solid white"
 				}
 			}
-			return
 		}
 
 		for (let i = 0; i < 4; i++) {
